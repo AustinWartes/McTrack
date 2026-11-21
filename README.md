@@ -43,3 +43,20 @@ Replace `VFXTracker/Assets.xcassets/AppIcon.appiconset/AppIcon.png` with your ow
 - Horizontal plane raycasts may initially use estimated geometry. For accurate floor placement, wait for stable tracking and a well-observed floor.
 - The Saved Takes sheet is a simple list; the Files app is the primary way to manage/copy take folders.
 - There is no Blender importer or AprilTag prop tracking yet.
+
+## v0.4 floor visualization
+
+- Flat unlit textured reticle, with opaque coral rings and white center.
+- Stationary world-space 5 m dot grid, revealed with a radial shader centered at the moving placement reticle. No sphere dots or torus shadow.
+- Raycast updates target approximately 30 Hz, up from ~11 Hz. Actual refresh varies with ARKit and device load.
+- Existing recording and output mode controls remain unchanged.
+
+## Blender preview importer
+
+Install `BlenderAddon/mctrack_import.py` via Blender Preferences > Add-ons > Install from Disk, enable it, then File > Import > McTrack Take. It accepts a ZIP containing `tracking.json`, `metadata.json`, and `video.mov` or a direct `tracking.json` path with neighboring files. This is a **preview** importer. Camera animation and video background are included, but the exact optical intrinsics-to-portrait-crop calibration, principal point, and video-to-pose timing still require a calibration test before pixel-accurate VFX use. Blender's camera background display is not a compositing node setup.
+
+To make a take ZIP on Windows, compress the contents of a `Take_...` folder together, ensuring `tracking.json`, `metadata.json`, and `video.mov` are present. Do not delete originals. In-app ZIP packaging can be added next.
+
+## Five-face AprilTag cube plan
+
+Use five unique IDs from the same `tagStandard41h12` family, one on the top and one on each of four sides. The bottom stays unmarked for the handle. Measure physical cube side length and printed tag black/white border size. The AprilTag 3 C detector will be added to the iOS project in a subsequent version; this revision does not yet include marker tracking.

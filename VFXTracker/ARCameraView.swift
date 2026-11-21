@@ -2,6 +2,7 @@ import SwiftUI
 import ARKit
 import SceneKit
 import simd
+import UIKit
 
 struct ARCameraView: UIViewRepresentable {
     @ObservedObject var store: TrackingStore
@@ -41,6 +42,9 @@ struct ARCameraView: UIViewRepresentable {
         private weak var view: ARSCNView?
         private let reticle = SCNNode()
         private let gizmo = SCNNode()
+        private let groundGrid = SCNNode()
+        private var gridMaterial: SCNMaterial?
+        private var gridOrigin: simd_float4x4?
         private var lastRaycast: TimeInterval = 0
         private var currentPlacement: simd_float4x4?
         private var placed = false
@@ -71,6 +75,8 @@ struct ARCameraView: UIViewRepresentable {
             placed = false
             reticle.isHidden = true
             gizmo.isHidden = true
+            groundGrid.isHidden = true
+            gridOrigin = nil
             currentPlacement = nil
             store.resetOrigin()
             view.session.run(config, options: [.resetTracking, .removeExistingAnchors])
@@ -82,10 +88,13 @@ struct ARCameraView: UIViewRepresentable {
             self.view = view
             makeReticle()
             makeGizmo()
+            makeGroundGrid()
             view.scene.rootNode.addChildNode(reticle)
             view.scene.rootNode.addChildNode(gizmo)
+            view.scene.rootNode.addChildNode(groundGrid)
             reticle.isHidden = true
             gizmo.isHidden = true
+            groundGrid.isHidden = true
             let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
             view.addGestureRecognizer(tap)
         }
@@ -93,7 +102,7 @@ struct ARCameraView: UIViewRepresentable {
         func session(_ session: ARSession, didUpdate frame: ARFrame) {
             store.process(frame)
             let now = frame.timestamp
-            guard now - lastRaycast > 0.09 else { return }
+            guard now - lastRaycast > 0.033 else { return }
             lastRaycast = now
             DispatchQueue.main.async { [weak self] in self?.updatePlacement() }
         }
@@ -111,6 +120,18 @@ struct ARCameraView: UIViewRepresentable {
             currentPlacement = result.worldTransform
             reticle.simdTransform = result.worldTransform
             reticle.isHidden = false
+            if gridOrigin == nil {
+                // The grid is established once in world space, not parented to the reticle.
+                gridOrigin = result.worldTransform
+                groundGrid.simdTransform = result.worldTransform
+            }
+            if let base = gridOrigin {
+                let local = simd_inverse(base) * result.worldTransform
+                let u = 0.5 + local.columns.3.x / 5.0
+                let v = 0.5 - local.columns.3.z / 5.0
+                gridMaterial?.setValue(SCNVector3(u, v, 0), forKey: "revealUV")
+                groundGrid.isHidden = false
+            }
             if !store.canPlaceOrigin { store.canPlaceOrigin = true }
             if store.message == "Scan a textured floor" { store.message = "Tap to set origin" }
         }
@@ -123,6 +144,7 @@ struct ARCameraView: UIViewRepresentable {
             gizmo.simdTransform = matrix
             gizmo.isHidden = false
             reticle.isHidden = true
+            groundGrid.isHidden = true
             store.setOrigin(matrix)
         }
 
@@ -130,6 +152,8 @@ struct ARCameraView: UIViewRepresentable {
             guard !store.recording else { return }
             placed = false
             gizmo.isHidden = true
+            groundGrid.isHidden = true
+            gridOrigin = nil
             currentPlacement = nil
             store.resetOrigin()
         }
@@ -156,53 +180,74 @@ struct ARCameraView: UIViewRepresentable {
             parent.addChildNode(node)
         }
 
+        // All placement graphics are flat, unlit, and double-sided.
+        // The ring is an opaque texture, so no overlapping torus/shadow geometry is needed.
         private func makeReticle() {
-            let coral = UIColor(red: 231/255, green: 125/255, blue: 118/255, alpha: 1)
-            let ivory = UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1)
-            // Two low-profile rings make the indicator readable on light and dark floors.
-            for (radius, pipe, color, height) in [
-                (CGFloat(0.096), CGFloat(0.006), UIColor.black.withAlphaComponent(0.60), Float(0.004)),
-                (CGFloat(0.095), CGFloat(0.003), coral, Float(0.006))
-            ] {
-                let ring = SCNTorus(ringRadius: radius, pipeRadius: pipe)
-                ring.materials = [material(color)]
-                let node = SCNNode(geometry: ring)
-                node.simdPosition.y = height
-                reticle.addChildNode(node)
+            let size: CGFloat = 512
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+            let image = renderer.image { context in
+                let cg = context.cgContext
+                let coral = UIColor(red: 231/255, green: 125/255, blue: 118/255, alpha: 1)
+                let ivory = UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1)
+                cg.setStrokeColor(coral.cgColor)
+                cg.setLineWidth(17)
+                cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
+                cg.setStrokeColor(coral.cgColor)
+                cg.setLineWidth(12)
+                cg.strokeEllipse(in: CGRect(x: 215, y: 215, width: 82, height: 82))
+                cg.setFillColor(ivory.cgColor)
+                cg.fillEllipse(in: CGRect(x: 237, y: 237, width: 38, height: 38))
             }
-            let dot = SCNSphere(radius: 0.010)
-            dot.materials = [material(coral)]
-            let center = SCNNode(geometry: dot)
-            center.simdPosition.y = 0.010
-            reticle.addChildNode(center)
-            let core = SCNSphere(radius: 0.006)
-            core.materials = [material(ivory)]
-            let coreNode = SCNNode(geometry: core)
-            coreNode.simdPosition.y = 0.015
-            reticle.addChildNode(coreNode)
+            let plane = SCNPlane(width: 0.24, height: 0.24)
+            let m = material(.white)
+            m.diffuse.contents = image
+            m.transparencyMode = .aOne
+            m.writesToDepthBuffer = false
+            m.readsFromDepthBuffer = false
+            plane.materials = [m]
+            let node = SCNNode(geometry: plane)
+            node.eulerAngles.x = -.pi / 2
+            node.position.y = 0.008
+            reticle.addChildNode(node)
+        }
 
-            // Radial fade in the horizontal XZ plane, independent of screen crop.
-            // Dot sizes and opacity remain high near the ring, then taper to zero.
-            let spacing: Float = 0.047
-            let maxRadius: Float = 0.59
-            for x in -13...13 {
-                for z in -13...13 {
-                    let px = Float(x) * spacing
-                    let pz = Float(z) * spacing
-                    let distance = hypot(px, pz)
-                    if distance < 0.12 || distance >= maxRadius { continue }
-                    let t = min(1, max(0, (distance - 0.12) / (maxRadius - 0.12)))
-                    let fade = (1 - t) * (1 - t) * (1 + 2 * t)
-                    let alpha = CGFloat(0.92 * fade)
-                    if alpha < 0.035 { continue }
-                    let geometry = SCNSphere(radius: CGFloat(0.0030 * (0.65 + 0.35 * fade)))
-                    geometry.segmentCount = 6
-                    geometry.materials = [material(ivory.withAlphaComponent(alpha))]
-                    let node = SCNNode(geometry: geometry)
-                    node.simdPosition = SIMD3<Float>(px, 0.005, pz)
-                    reticle.addChildNode(node)
+        private func makeGroundGrid() {
+            let size: CGFloat = 2048
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+            let image = renderer.image { context in
+                let cg = context.cgContext
+                cg.setFillColor(UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1).cgColor)
+                // A 5 m square of fixed dots, 5 cm apart.
+                // The shader reveals only a small radius around the moving reticle.
+                let count = 100
+                let step = size / CGFloat(count)
+                for x in 0...count {
+                    for y in 0...count {
+                        let px = CGFloat(x) * step
+                        let py = CGFloat(y) * step
+                        cg.fillEllipse(in: CGRect(x: px - 3.0, y: py - 3.0, width: 6, height: 6))
+                    }
                 }
             }
+            let plane = SCNPlane(width: 5, height: 5)
+            let m = material(.white)
+            m.diffuse.contents = image
+            m.transparencyMode = .aOne
+            m.writesToDepthBuffer = false
+            m.readsFromDepthBuffer = false
+            m.setValue(SCNVector3(0.5, 0.5, 0), forKey: "revealUV")
+            m.shaderModifiers = [.surface: """
+                uniform vec3 revealUV;
+                float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
+                float fade = 1.0 - smoothstep(0.12, 0.72, distanceMeters);
+                _surface.diffuse.a *= fade;
+            """]
+            plane.materials = [m]
+            gridMaterial = m
+            let node = SCNNode(geometry: plane)
+            node.eulerAngles.x = -.pi / 2
+            node.position.y = 0.003
+            groundGrid.addChildNode(node)
         }
 
         private func makeGizmo() {
