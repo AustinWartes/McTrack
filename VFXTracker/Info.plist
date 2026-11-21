@@ -3,9 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>NSCameraUsageDescription</key>
-    <string>VFX Tracker uses the camera for AR camera tracking.</string>
+    <string>McTrack uses the camera for AR camera tracking.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>McTrack records audio alongside camera video.</string>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
     <key>CFBundleDisplayName</key>
-    <string>VFX Tracker</string>
+    <string>McTrack</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>

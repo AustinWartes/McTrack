@@ -1,118 +1,81 @@
 import SwiftUI
+import UIKit
 import ARKit
+import AVFoundation
 
 struct ContentView: View {
     @StateObject private var store = TrackingStore()
-    @State private var showingExportError = false
-    @State private var exportError = ""
+    @State private var coordinator: ARCameraView.Coordinator?
 
     var body: some View {
         ZStack {
-            ARCameraView(store: store)
+            ARCameraView(store: store, coordinatorRef: $coordinator)
                 .ignoresSafeArea()
-
             VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("VFX TRACKER")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .tracking(1.6)
-                        Text(store.trackingDescription)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(store.trackingDescription == "Tracking: Normal" ? .green : .yellow)
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("McTrack")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                        Text(store.status)
+                            .font(.system(size: 11))
+                            .foregroundStyle(store.status == "Tracking normal" ? .green : .yellow)
                     }
                     Spacer()
-                    Text("CAM 01")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(.black.opacity(0.55), in: Capsule())
+                    if store.hasOrigin {
+                        Button("Reset Origin") { coordinator?.resetPlacement() }
+                            .disabled(store.recording)
+                            .font(.system(size: 12, weight: .semibold))
+                    } else {
+                        Text(store.canPlaceOrigin ? "TAP TO SET ORIGIN" : "SCAN FLOOR")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
                 }
-                .padding(16)
-                .background(.black.opacity(0.45))
-
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                .background(.black.opacity(0.42))
                 Spacer()
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(store.isRecording ? "RECORDING TRACK" : "READY")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(store.isRecording ? .red : .white)
-                        Text("\(store.sampleCount) samples")
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    }
-                    Spacer()
-                    if store.isRecording {
-                        Circle().fill(.red).frame(width: 9, height: 9)
-                    }
-                }
-                .padding(14)
-                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal, 16)
-
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button {
-                        if store.isRecording {
-                            store.stopRecording()
-                        } else {
-                            let timestamp = ARSession().currentFrame?.timestamp ?? ProcessInfo.processInfo.systemUptime
-                            store.startRecording(at: timestamp)
-                        }
+                        if store.recording { store.end() } else { store.begin() }
                     } label: {
-                        Label(store.isRecording ? "STOP" : "RECORD", systemImage: store.isRecording ? "stop.fill" : "record.circle")
+                        Label(store.recording ? "STOP" : "RECORD", systemImage: store.recording ? "stop.fill" : "record.circle")
                             .font(.system(size: 15, weight: .bold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(store.isRecording ? Color.red : Color.white, in: RoundedRectangle(cornerRadius: 14))
-                            .foregroundStyle(store.isRecording ? .white : .black)
+                            .frame(maxWidth: .infinity).frame(height: 52)
+                            .background(store.recording ? .red : .white, in: RoundedRectangle(cornerRadius: 14))
+                            .foregroundStyle(store.recording ? .white : .black)
                     }
-
-                    Button {
-                        do {
-                            _ = try store.makeExport()
-                        } catch {
-                            exportError = error.localizedDescription
-                            showingExportError = true
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 17, weight: .semibold))
+                    Button { store.refreshTakes(); store.showTakes = true } label: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 19, weight: .medium))
                             .frame(width: 54, height: 52)
                             .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
-                            .foregroundStyle(.white)
                     }
-                    .disabled(store.sampleCount == 0)
-                    .opacity(store.sampleCount == 0 ? 0.4 : 1)
+                    .foregroundStyle(.white)
                 }
-                .padding(16)
-                .background(.black.opacity(0.55))
+                .padding(.horizontal, 16)
+                Text(store.message)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 7).padding(.bottom, 12)
             }
         }
-        .sheet(item: Binding(
-            get: { store.exportURL.map(ExportItem.init) },
-            set: { _ in store.exportURL = nil }
-        )) { item in
-            ShareSheet(activityItems: [item.url])
-                .presentationDetents([.medium, .large])
-        }
-        .alert("Export failed", isPresented: $showingExportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportError)
+        .onAppear { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
+        .sheet(isPresented: $store.showTakes) {
+            NavigationStack {
+                List {
+                    ForEach(store.takes, id: \.path) { folder in
+                        ShareLink(item: folder, preview: SharePreview(folder.lastPathComponent)) {
+                            Label(folder.lastPathComponent, systemImage: "folder")
+                        }
+                    }
+                }
+                .navigationTitle("Saved Takes")
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { store.showTakes = false } } }
+                .overlay {
+                    if store.takes.isEmpty { ContentUnavailableView("No takes yet", systemImage: "folder", description: Text("Record a take to save it here.")) }
+                }
+            }
         }
     }
 }
 
-private struct ExportItem: Identifiable {
-    let id = UUID()
-    let url: URL
-    init(_ url: URL) { self.url = url }
-}
-
-private struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
-}

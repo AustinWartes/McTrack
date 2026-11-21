@@ -12,9 +12,9 @@ targets:
     info:
       path: VFXTracker/Info.plist
       properties:
-        CFBundleDisplayName: VFX Tracker
-        NSCameraUsageDescription: VFX Tracker uses the camera for AR camera tracking.
-        NSMicrophoneUsageDescription: Microphone access will be used for synchronized video recording in a future version.
+        CFBundleDisplayName: McTrack
+        NSCameraUsageDescription: McTrack uses the camera for camera tracking and recording.
+        NSMicrophoneUsageDescription: McTrack records audio alongside camera video.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -27,3 +27,4 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: 17.0
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

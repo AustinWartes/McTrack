@@ -1,116 +1,170 @@
 import Foundation
 import ARKit
+import AVFoundation
+import Combine
 import simd
 
-struct CameraSample: Codable {
-    let frameTimestamp: Double
+struct TrackSample: Codable {
     let elapsedSeconds: Double
-    let cameraTransform: [Float]
+    let arTimestamp: Double
+    let cameraToOrigin: [Float]
     let trackingState: String
+    let fx: Float
+    let fy: Float
+    let cx: Float
+    let cy: Float
+    let imageWidth: Int
+    let imageHeight: Int
+}
+
+struct TrackFile: Codable {
+    let format: String
+    let coordinateSystem: String
+    let matrixLayout: String
+    let originToARWorld: [Float]
+    let samples: [TrackSample]
+}
+
+func flatten(_ m: simd_float4x4) -> [Float] {
+    [m.columns.0.x,m.columns.0.y,m.columns.0.z,m.columns.0.w,
+     m.columns.1.x,m.columns.1.y,m.columns.1.z,m.columns.1.w,
+     m.columns.2.x,m.columns.2.y,m.columns.2.z,m.columns.2.w,
+     m.columns.3.x,m.columns.3.y,m.columns.3.z,m.columns.3.w]
 }
 
 final class TrackingStore: ObservableObject {
-    @Published var isRecording = false
-    @Published var sampleCount = 0
-    @Published var trackingDescription = "Starting AR session..."
-    @Published var exportURL: URL?
+    @Published var recording = false
+    @Published var hasOrigin = false
+    @Published var canPlaceOrigin = false
+    @Published var status = "Initializing tracking"
+    @Published var message = "Scan a textured floor"
+    @Published var takes: [URL] = []
+    @Published var showTakes = false
+    @Published var latestTake: URL?
 
-    private let lock = NSLock()
-    private var samples: [CameraSample] = []
-    private var recordingStartTimestamp: TimeInterval?
+    // All ARFrame work runs on the ARSession delegate serial queue.
+    private let queue = DispatchQueue(label: "mctrack.frames")
+    private var origin = matrix_identity_float4x4
+    private var selectedOrigin = false
+    private var samples: [TrackSample] = []
+    private var startTimestamp: Double?
+    private var lastTimestamp: Double = -1
+    private var writer: TakeWriter?
+    private var activeFolder: URL?
+    private var lastStatus = ""
 
-    func updateTrackingState(_ state: ARCamera.TrackingState) {
-        let description: String
-        switch state {
-        case .normal:
-            description = "Tracking: Normal"
-        case .notAvailable:
-            description = "Tracking: Unavailable"
-        case .limited(let reason):
-            switch reason {
-            case .initializing: description = "Tracking: Initializing"
-            case .excessiveMotion: description = "Tracking: Excessive motion"
-            case .insufficientFeatures: description = "Tracking: Need more visual detail"
-            case .relocalizing: description = "Tracking: Relocalizing"
-            @unknown default: description = "Tracking: Limited"
+    let takesFolder: URL = {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = documents.appendingPathComponent("Takes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
+
+    init() { refreshTakes() }
+
+    func refreshTakes() {
+        let urls = (try? FileManager.default.contentsOfDirectory(at: takesFolder, includingPropertiesForKeys: nil)) ?? []
+        DispatchQueue.main.async { self.takes = urls.filter { $0.hasDirectoryPath }.sorted { $0.lastPathComponent > $1.lastPathComponent } }
+    }
+
+    func setOrigin(_ matrix: simd_float4x4) {
+        queue.async {
+            self.origin = matrix
+            self.selectedOrigin = true
+            DispatchQueue.main.async {
+                self.hasOrigin = true
+                self.message = "Origin set"
             }
         }
-        DispatchQueue.main.async { self.trackingDescription = description }
     }
 
-    func startRecording(at timestamp: TimeInterval) {
-        lock.lock()
-        samples.removeAll(keepingCapacity: true)
-        recordingStartTimestamp = nil
-        isRecording = true
-        sampleCount = 0
-        lock.unlock()
-    }
-
-    func stopRecording() {
-        lock.lock()
-        isRecording = false
-        lock.unlock()
-    }
-
-    func append(frame: ARFrame) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard isRecording else { return }
-        if recordingStartTimestamp == nil { recordingStartTimestamp = frame.timestamp }
-        guard let start = recordingStartTimestamp else { return }
-
-        let matrix = frame.camera.transform
-        let values: [Float] = [
-            matrix.columns.0.x, matrix.columns.0.y, matrix.columns.0.z, matrix.columns.0.w,
-            matrix.columns.1.x, matrix.columns.1.y, matrix.columns.1.z, matrix.columns.1.w,
-            matrix.columns.2.x, matrix.columns.2.y, matrix.columns.2.z, matrix.columns.2.w,
-            matrix.columns.3.x, matrix.columns.3.y, matrix.columns.3.z, matrix.columns.3.w
-        ]
-
-        let state: String
-        switch frame.camera.trackingState {
-        case .normal: state = "normal"
-        case .notAvailable: state = "notAvailable"
-        case .limited: state = "limited"
+    func resetOrigin() {
+        queue.async {
+            guard self.writer == nil else { return }
+            self.selectedOrigin = false
+            self.origin = matrix_identity_float4x4
+            DispatchQueue.main.async { self.hasOrigin = false; self.message = "Tap to set origin" }
         }
-
-        samples.append(CameraSample(
-            frameTimestamp: frame.timestamp,
-            elapsedSeconds: frame.timestamp - start,
-            cameraTransform: values,
-            trackingState: state
-        ))
-        let count = samples.count
-        DispatchQueue.main.async { self.sampleCount = count }
     }
 
-    func makeExport() throws -> URL {
-        lock.lock()
-        let snapshot = samples
-        lock.unlock()
-
-        let payload: [String: Any] = [
-            "format": "VFXTracker_CameraTrack_v1",
-            "coordinateSystem": "ARKit world coordinates; right-handed; meters",
-            "matrixLayout": "column-major, 16 Float values",
-            "notes": "Camera transform is the ARKit camera-to-world transform. frameTimestamp is ARKit's frame timestamp in seconds. elapsedSeconds is relative to recording start.",
-            "sampleCount": snapshot.count,
-            "samples": snapshot.map {
-                [
-                    "frameTimestamp": $0.frameTimestamp,
-                    "elapsedSeconds": $0.elapsedSeconds,
-                    "cameraTransform": $0.cameraTransform,
-                    "trackingState": $0.trackingState
-                ] as [String: Any]
+    func begin() {
+        queue.async {
+            guard self.writer == nil else { return }
+            let folder = self.takesFolder.appendingPathComponent("Take_" + Self.dateName(), isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"))
+                self.writer = writer
+                self.activeFolder = folder
+                self.samples.removeAll(keepingCapacity: true)
+                self.startTimestamp = nil
+                self.lastTimestamp = -1
+                DispatchQueue.main.async { self.recording = true; self.message = "Recording" }
+            } catch {
+                DispatchQueue.main.async { self.message = "Record error: \(error.localizedDescription)" }
             }
-        ]
-
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VFXTracker_CameraTrack_\(Int(Date().timeIntervalSince1970)).json")
-        try data.write(to: url, options: .atomic)
-        DispatchQueue.main.async { self.exportURL = url }
-        return url
+        }
     }
+
+    func end() {
+        queue.async {
+            guard let writer = self.writer, let folder = self.activeFolder else { return }
+            self.writer = nil
+            self.activeFolder = nil
+            let samples = self.samples
+            let origin = self.origin
+            DispatchQueue.main.async { self.recording = false; self.message = "Saving take…" }
+            writer.finish { result in
+                do {
+                    let track = TrackFile(format: "McTrack_v2", coordinateSystem: "Origin-local ARKit right-handed coordinates, meters; +Y up. Camera-to-origin transforms.", matrixLayout: "column-major", originToARWorld: flatten(origin), samples: samples)
+                    let data = try JSONEncoder.pretty.encode(track)
+                    try data.write(to: folder.appendingPathComponent("tracking.json"), options: .atomic)
+                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [1080,1920], "audioRequested": true, "audioStatus": writer.audioStatus]
+                    let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
+                    try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
+                    DispatchQueue.main.async {
+                        self.latestTake = folder
+                        self.message = result == nil ? "Take saved" : "Saved with video warning"
+                        self.refreshTakes()
+                    }
+                } catch {
+                    DispatchQueue.main.async { self.message = "Save error: \(error.localizedDescription)" }
+                }
+            }
+        }
+    }
+
+    func process(_ frame: ARFrame) {
+        queue.async {
+            let state: String
+            switch frame.camera.trackingState {
+            case .normal: state = "Tracking normal"
+            case .notAvailable: state = "Tracking unavailable"
+            case .limited: state = "Tracking limited"
+            }
+            if state != self.lastStatus {
+                self.lastStatus = state
+                DispatchQueue.main.async { self.status = state }
+            }
+            guard let writer = self.writer else { return }
+            guard frame.timestamp > self.lastTimestamp else { return }
+            self.lastTimestamp = frame.timestamp
+            if self.startTimestamp == nil { self.startTimestamp = frame.timestamp }
+            guard let start = self.startTimestamp else { return }
+            let camera = frame.camera
+            let k = camera.intrinsics
+            let resolution = camera.imageResolution
+            let local = simd_inverse(self.origin) * camera.transform
+            self.samples.append(TrackSample(elapsedSeconds: frame.timestamp - start, arTimestamp: frame.timestamp, cameraToOrigin: flatten(local), trackingState: state, fx: k.columns.0.x, fy: k.columns.1.y, cx: k.columns.2.x, cy: k.columns.2.y, imageWidth: Int(resolution.width), imageHeight: Int(resolution.height)))
+            writer.appendVideo(frame.capturedImage, arTimestamp: frame.timestamp)
+        }
+    }
+
+    private static func dateName() -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd_HHmmss_SSS"; return f.string(from: Date())
+    }
+}
+
+extension JSONEncoder {
+    static var pretty: JSONEncoder { let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; return encoder }
 }

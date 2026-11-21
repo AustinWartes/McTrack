@@ -1,55 +1,45 @@
-# VFX Tracker
+# McTrack v0.2 (iPhone prototype)
 
-Early iPhone prototype for ARKit camera tracking and timestamped transform export.
+This is a **development prototype**, not a verified production build. It has not yet been compiled against the iOS SDK in this environment. GitHub Actions is the first compilation test.
 
-## Current prototype scope
+## What's new
 
-- Portrait-first ARKit camera preview
-- ARKit world tracking (camera position and orientation)
-- Visual XYZ reference gizmo
-- Record timestamped camera-to-world transforms
-- Export JSON through the iOS share sheet
+- ARKit horizontal-plane raycast and circular reticle with fading ground dots
+- Tap the live camera preview to set the floor/origin
+- Solid positive XYZ axes and dashed negative axes, with Reset Origin
+- Save takes automatically in `On My iPhone > McTrack > Takes` (enable Files app visibility via Info.plist)
+- Portrait H.264 `.mov` video, microphone AAC audio (when permission granted), JSON camera tracking and metadata
+- In-app Saved Takes list, no automatic share sheet
+- McTrack name and a replaceable icon
 
-Not included yet: AprilTag prop tracking, video/audio recording, Blender importer, multi-camera support.
+## Windows build and installation
 
-## Build from Windows
+1. Replace your existing GitHub repository source files with the contents of this folder, preserving `.github` and the project root layout.
+2. Commit and push to `main` using GitHub Desktop.
+3. GitHub Actions runs `Build unsigned iOS app` and produces an unsigned IPA artifact.
+4. Download the artifact, extract the IPA, and use Sideloadly to install it on your iPhone as before.
+5. Trust the developer profile in iOS Settings > General > VPN & Device Management if needed.
 
-This repository uses GitHub Actions as a remote macOS build machine because native iOS app builds require Xcode/macOS.
+## Custom app icon
 
-1. Create a GitHub account if you do not already have one.
-2. Create a **public** repository named `VFXTracker`.
-3. Upload all files from this project folder to the repository root. Keep the `.github` folder.
-4. Open the repository's **Actions** tab and enable Actions if GitHub asks.
-5. Push/commit the files to the `main` branch. The workflow should start automatically.
-6. When the workflow finishes, open the run, scroll to **Artifacts**, and download `VFXTracker-unsigned-IPA`.
-7. Extract the ZIP. It contains `VFXTracker-unsigned.ipa`.
+Replace `VFXTracker/Assets.xcassets/AppIcon.appiconset/AppIcon.png` with your own **1024 x 1024 pixel PNG**. Use RGB, opaque/no alpha channel, no pre-rounded corners. Keep the filename `AppIcon.png`. Commit and push again to rebuild.
 
-## Install on your iPhone from Windows
+## First tests
 
-An unsigned IPA cannot be installed directly. It must be signed with your Apple ID.
+1. Launch the app and grant camera **and microphone** access.
+2. Scan a well-lit textured floor; a circular reticle should appear near screen center.
+3. Tap the camera view to set the origin. Move around to confirm the XYZ gizmo remains fixed to the floor.
+4. Record a short take, stop, and wait for `Take saved`.
+5. Open the iOS **Files** app > **On My iPhone** > **McTrack** > **Takes**. Each take should contain `video.mov`, `tracking.json`, and `metadata.json`.
+6. Play the MOV and check video orientation, audio, and sync. If audio is absent, check microphone permission and `metadata.json`'s `audioStatus`.
+7. Inspect `tracking.json` to verify samples contain `cameraToOrigin`, timestamp, tracking state, and camera intrinsics.
 
-1. Install Sideloadly from its official site: https://sideloadly.io/
-2. Connect the iPhone to the Windows PC with a data-capable USB cable. Unlock the phone and tap **Trust** if prompted.
-3. Open Sideloadly, select your iPhone, and drag `VFXTracker-unsigned.ipa` into the IPA field.
-4. Enter your Apple ID when Sideloadly requests it. Use Apple's normal app-specific signing flow; never give your Apple ID password to an unofficial website.
-5. Start the sideload. Follow any Apple trust/developer-mode prompts shown on the iPhone.
-6. With a free Apple account, personal app signing is temporary and typically needs refreshing about every 7 days. Sideloadly can refresh while the phone is connected. A paid Apple Developer membership avoids that particular short expiration and is needed for normal public App Store distribution.
+## Known limitations / items requiring on-device validation
 
-Apple and Sideloadly requirements can change. Only download Sideloadly from its official site and review its current instructions.
-
-## First test
-
-1. Open the app and allow camera access.
-2. Use it in a well-lit room with visible texture and detail. Avoid a blank wall.
-3. Move the phone slowly around a small object or room, keeping the phone orientation steady initially.
-4. Confirm the tracking status becomes **Tracking: Normal**.
-5. Tap **RECORD**, move the phone for 10-20 seconds, then tap **STOP**.
-6. Tap the share icon and save the JSON to Files, iCloud Drive, or send it to your PC.
-7. Inspect the file: it should contain many samples, each with a 16-value camera transform and elapsed time.
-
-## Important notes
-
-- The first tracking origin is established when the AR session starts. The visual XYZ gizmo is placed 1.5 m in front of the initial camera as a visible reference; it is not the actual world-origin marker.
-- ARKit world tracking is visual-inertial tracking, not surveyed motion capture. It can drift or become limited if lighting, texture, or motion conditions are poor.
-- This is a development prototype, not a calibrated camera solve. Lens intrinsics, video plate recording, orientation metadata, and Blender import will be added and validated in later milestones.
-- The JSON matrix is the ARKit camera transform in column-major order. Do not assume Blender axis conventions match without applying a coordinate conversion in the importer.
+- This version is untested against Xcode/iOS and may need build fixes.
+- ARKit frame buffers are sensor-oriented. The app rotates and center-crops them into a portrait 1080 x 1920 MOV. **A future Blender importer must adjust camera intrinsics for the exact rotation/crop**. This version preserves original intrinsics and raw image dimensions, but does not yet export crop-adjusted intrinsics.
+- ARKit frame timestamps and microphone capture PTS should be based on the device host clock, but AV synchronization needs on-device validation, especially at take start/stop.
+- Frame encoding can drop frames under load. Tracking data is collected from ARKit frames, not guaranteed one sample per encoded video frame.
+- Horizontal plane raycasts may initially use estimated geometry. For accurate floor placement, wait for stable tracking and a well-observed floor.
+- The Saved Takes sheet is a simple list; the Files app is the primary way to manage/copy take folders.
+- There is no Blender importer or AprilTag prop tracking yet.
