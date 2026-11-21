@@ -127,8 +127,25 @@ struct ARCameraView: UIViewRepresentable {
             }
             if let base = gridOrigin {
                 let local = simd_inverse(base) * result.worldTransform
-                let u = 0.5 + local.columns.3.x / 5.0
-                let v = 0.5 - local.columns.3.z / 5.0
+                // SCNPlane is rotated -90 degrees about X: local +Y maps to world -Z.
+                // The shader uses UV with V increasing along the plane's local +Y.
+                // Keep the mesh recentered in world space, snapped to whole dot intervals.
+                let dotSpacing: Float = 0.05
+                let localX = local.columns.3.x
+                let localZ = local.columns.3.z
+                if abs(localX) > 1.5 || abs(localZ) > 1.5 {
+                    var shifted = base
+                    let stepX = (localX / dotSpacing).rounded(.towardZero) * dotSpacing
+                    let stepZ = (localZ / dotSpacing).rounded(.towardZero) * dotSpacing
+                    let worldShift = simd_mul(base, SIMD4<Float>(stepX, 0, stepZ, 0))
+                    shifted.columns.3 += worldShift
+                    gridOrigin = shifted
+                    groundGrid.simdTransform = shifted
+                }
+                let updatedBase = gridOrigin ?? base
+                let updatedLocal = simd_inverse(updatedBase) * result.worldTransform
+                let u = 0.5 + updatedLocal.columns.3.x / 5.0
+                let v = 0.5 + updatedLocal.columns.3.z / 5.0
                 gridMaterial?.setValue(SCNVector3(u, v, 0), forKey: "revealUV")
                 groundGrid.isHidden = false
             }
