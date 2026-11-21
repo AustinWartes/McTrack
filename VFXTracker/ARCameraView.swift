@@ -256,7 +256,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 1.0 - smoothstep(0.12, 0.72, distanceMeters);
+                float fade = 0.72 * (1.0 - smoothstep(0.10, 0.62, distanceMeters));
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]
