@@ -19,21 +19,26 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var previousVideo: Double = -1
     private var audioCount = 0
     private var finishing = false
+    let resolution: Int
+    let fps: Int
     private(set) var audioStatus = "not initialized"
 
-    init(url: URL) throws {
+    init(url: URL, resolution: Int = 1080, fps: Int = 30) throws {
+        self.resolution = resolution
+        self.fps = fps
+        let height = resolution == 2160 ? 3840 : 1920
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 1080,
-            AVVideoHeightKey: 1920,
-            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 10_000_000]
+            AVVideoWidthKey: resolution,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: resolution == 2160 ? 35_000_000 : 10_000_000]
         ])
         videoInput.expectsMediaDataInRealTime = true
         adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 1080,
-            kCVPixelBufferHeightKey as String: 1920,
+            kCVPixelBufferWidthKey as String: resolution,
+            kCVPixelBufferHeightKey as String: height,
             kCVPixelBufferIOSurfacePropertiesKey as String: [:]
         ])
         super.init()
@@ -75,6 +80,8 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             firstTimestamp = arTimestamp
             started = true
         }
+        // Keep all ARKit pose samples; only write video frames at the chosen output rate.
+        guard previousVideo < 0 || arTimestamp - previousVideo >= (1.0 / Double(fps) - 0.002) else { return }
         guard writer.status == .writing, videoInput.isReadyForMoreMediaData, arTimestamp > previousVideo,
               let pool = adaptor.pixelBufferPool else { return }
         var destination: CVPixelBuffer?
@@ -84,11 +91,11 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         // ARKit's captured image is landscape sensor data. Rotate actual pixels into portrait.
         let rotated = source.oriented(.right)
         let extent = rotated.extent
-        let scale = max(1080 / extent.width, 1920 / extent.height)
+        let scale = max(CGFloat(resolution) / extent.width, CGFloat(resolution == 2160 ? 3840 : 1920) / extent.height)
         let scaled = rotated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let x = (scaled.extent.width - 1080) / 2 + scaled.extent.minX
-        let y = (scaled.extent.height - 1920) / 2 + scaled.extent.minY
-        let cropped = scaled.cropped(to: CGRect(x: x, y: y, width: 1080, height: 1920))
+        let x = (scaled.extent.width - CGFloat(resolution)) / 2 + scaled.extent.minX
+        let y = (scaled.extent.height - CGFloat(resolution == 2160 ? 3840 : 1920)) / 2 + scaled.extent.minY
+        let cropped = scaled.cropped(to: CGRect(x: x, y: y, width: CGFloat(resolution), height: CGFloat(resolution == 2160 ? 3840 : 1920)))
             .transformed(by: CGAffineTransform(translationX: -x, y: -y))
         context.render(cropped, to: output)
         if adaptor.append(output, withPresentationTime: CMTime(seconds: arTimestamp, preferredTimescale: 1_000_000)) {

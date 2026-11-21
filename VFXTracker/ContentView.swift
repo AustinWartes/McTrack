@@ -34,6 +34,24 @@ struct ContentView: View {
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .background(.black.opacity(0.42))
                 Spacer()
+                HStack(spacing: 8) {
+                    Button { store.cycleResolution() } label: {
+                        Text(store.resolution == 2160 ? "4K" : "1080p")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(store.recording || !store.supports4K)
+                    Button { store.cycleFPS() } label: {
+                        Text("\(store.fps) FPS")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(store.recording)
+                }
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.vertical, 9)
+                .background(.black.opacity(0.46), in: RoundedRectangle(cornerRadius: 11))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 9)
                 HStack(spacing: 10) {
                     Button {
                         if store.recording { store.end() } else { store.begin() }

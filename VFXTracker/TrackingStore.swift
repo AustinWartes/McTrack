@@ -34,6 +34,24 @@ func flatten(_ m: simd_float4x4) -> [Float] {
 
 final class TrackingStore: ObservableObject {
     @Published var recording = false
+    @Published var resolution = 1080
+    @Published var fps = 30
+    @Published var supports4K = ARWorldTrackingConfiguration.supportedVideoFormats.contains {
+        max(Int($0.imageResolution.width), Int($0.imageResolution.height)) >= 3840
+    }
+
+    func cycleFPS() {
+        guard !recording else { return }
+        let modes = resolution == 2160 ? [30, 24] : [30, 60, 24]
+        guard let index = modes.firstIndex(of: fps) else { fps = 30; return }
+        fps = modes[(index + 1) % modes.count]
+    }
+
+    func cycleResolution() {
+        guard !recording, supports4K else { return }
+        resolution = resolution == 1080 ? 2160 : 1080
+        if resolution == 2160 && fps == 60 { fps = 30 }
+    }
     @Published var hasOrigin = false
     @Published var canPlaceOrigin = false
     @Published var status = "Initializing tracking"
@@ -93,7 +111,7 @@ final class TrackingStore: ObservableObject {
             let folder = self.takesFolder.appendingPathComponent("Take_" + Self.dateName(), isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"))
+                let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"), resolution: self.resolution, fps: self.fps)
                 self.writer = writer
                 self.activeFolder = folder
                 self.samples.removeAll(keepingCapacity: true)
@@ -119,7 +137,7 @@ final class TrackingStore: ObservableObject {
                     let track = TrackFile(format: "McTrack_v2", coordinateSystem: "Origin-local ARKit right-handed coordinates, meters; +Y up. Camera-to-origin transforms.", matrixLayout: "column-major", originToARWorld: flatten(origin), samples: samples)
                     let data = try JSONEncoder.pretty.encode(track)
                     try data.write(to: folder.appendingPathComponent("tracking.json"), options: .atomic)
-                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [1080,1920], "audioRequested": true, "audioStatus": writer.audioStatus]
+                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
                     DispatchQueue.main.async {
