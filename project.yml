@@ -1,0 +1,29 @@
+name: VFXTracker
+options:
+  bundleIdPrefix: com.artisttools
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  VFXTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: VFXTracker
+    info:
+      path: VFXTracker/Info.plist
+      properties:
+        CFBundleDisplayName: VFX Tracker
+        NSCameraUsageDescription: VFX Tracker uses the camera for AR camera tracking.
+        NSMicrophoneUsageDescription: Microphone access will be used for synchronized video recording in a future version.
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIViewControllerBasedStatusBarAppearance: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.artisttools.VFXTracker
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: 17.0
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
