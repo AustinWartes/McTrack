@@ -7,23 +7,26 @@ struct ContentView: View {
     @StateObject private var store = TrackingStore()
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
-    private let coral = Color(red: 0.96, green: 0.43, blue: 0.42)
+    private let coral = Color(red: 1.0, green: 0.36, blue: 0.38)
     private let glass = Color.black.opacity(0.25)
 
+    // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
             .fill(.ultraThinMaterial)
-            .overlay(Capsule().fill(Color.black.opacity(0.19)))
-            .overlay(Capsule().stroke(active ? coral.opacity(0.95) : .white.opacity(0.30), lineWidth: active ? 1.5 : 0.8))
-            .shadow(color: active ? coral.opacity(0.85) : .clear, radius: 11)
-            .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 22)
+            .overlay(Capsule().fill(Color.white.opacity(0.075)))
+            .overlay(Capsule().stroke(active ? coral.opacity(0.78) : .white.opacity(0.30), lineWidth: 1.1))
+            .overlay(Capsule().stroke(active ? Color(red: 1, green: 0.92, blue: 0.88).opacity(0.92) : .clear, lineWidth: 0.45).padding(1.5))
+            .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
+            .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
     }
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.black.opacity(0.19)))
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? coral : .white.opacity(0.25), lineWidth: 1))
-            .shadow(color: active ? coral.opacity(0.70) : .clear, radius: 12)
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.075)))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? coral.opacity(0.85) : .white.opacity(0.33), lineWidth: 0.85))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? .white.opacity(0.80) : .clear, lineWidth: 0.4).padding(1.5))
+            .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
     private var framedWordmark: some View {
         (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(coral))
@@ -41,12 +44,21 @@ struct ContentView: View {
                         path.move(to: CGPoint(x: 0, y: h-arm)); path.addLine(to: CGPoint(x: 0, y: h)); path.addLine(to: CGPoint(x: arm, y: h))
                         path.move(to: CGPoint(x: w-arm, y: h)); path.addLine(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: w, y: h-arm))
                     }
-                    .stroke(coral, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .stroke(coral, style: StrokeStyle(lineWidth: 1.9, lineCap: .round, lineJoin: .round))
+                    .overlay {
+                        Path { path in
+                            let a: CGFloat = 9, w = geo.size.width, h = geo.size.height
+                            path.move(to: CGPoint(x:a,y:1)); path.addLine(to: CGPoint(x:1,y:1)); path.addLine(to: CGPoint(x:1,y:a))
+                            path.move(to: CGPoint(x:w-a,y:1)); path.addLine(to: CGPoint(x:w-1,y:1)); path.addLine(to: CGPoint(x:w-1,y:a))
+                            path.move(to: CGPoint(x:1,y:h-a)); path.addLine(to: CGPoint(x:1,y:h-1)); path.addLine(to: CGPoint(x:a,y:h-1))
+                            path.move(to: CGPoint(x:w-a,y:h-1)); path.addLine(to: CGPoint(x:w-1,y:h-1)); path.addLine(to: CGPoint(x:w-1,y:h-a))
+                        }.stroke(Color(red:1,green:0.93,blue:0.89), style: StrokeStyle(lineWidth:0.65,lineCap:.round,lineJoin:.round))
+                    }
                     .shadow(color: coral, radius: 5)
                     .shadow(color: coral.opacity(0.85), radius: 12)
                 }
             }
-            .shadow(color: coral.opacity(0.35), radius: 8)
+            .shadow(color: coral.opacity(0.28), radius: 5)
     }
 
     var body: some View {
@@ -66,7 +78,7 @@ struct ContentView: View {
                             .frame(width: 42, height: 42)
                             .background(.ultraThinMaterial, in: Circle())
                             .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
-                            .shadow(color: showCameraSettings ? coral.opacity(0.95) : coral.opacity(0.22), radius: showCameraSettings ? 16 : 5)
+                            .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
                     }
                     .accessibilityLabel("Camera settings")
                 }
@@ -85,7 +97,7 @@ struct ContentView: View {
                             .foregroundStyle(.white.opacity(0.76))
                     }
                     .padding(14)
-                    .background(glassRounded(active: true))
+                    .background(glassRounded())
                     .padding(.horizontal, 16).padding(.top, 8)
                 }
 
@@ -117,21 +129,21 @@ struct ContentView: View {
                     }
                     .disabled(store.recording)
                     .accessibilityLabel("Cycle tracking mode")
-                    Rectangle().fill(.white.opacity(0.2)).frame(width: 1, height: 20)
                     Button { store.cycleResolution() } label: {
                         Text(store.resolution == 2160 ? "4K" : "1080p")
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity).padding(.vertical, 8)
+                            .background(glassCapsule())
                     }
                     .disabled(store.recording || !store.supports4K)
-                    Rectangle().fill(.white.opacity(0.2)).frame(width: 1, height: 20)
                     Button { store.cycleFPS() } label: {
                         Text("\(store.fps) FPS").frame(maxWidth: .infinity)
+                            .padding(.vertical, 8).background(glassCapsule())
                     }
                     .disabled(store.recording)
                 }
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 9).padding(.vertical, 6)
+                .padding(.horizontal, 7).padding(.vertical, 5)
                 .background(glassRounded())
                 .padding(.horizontal, 16).padding(.bottom, 12)
 
@@ -161,6 +173,10 @@ struct ContentView: View {
                     .padding(.top, 7).padding(.bottom, 12)
             }
             .foregroundStyle(.white)
+        }
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [.black.opacity(0.28), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 65).ignoresSafeArea(edges: .top).allowsHitTesting(false)
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
