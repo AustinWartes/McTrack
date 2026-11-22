@@ -87,6 +87,20 @@ struct ContentView: View {
                         }
                     }
                 }
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 8) {
+                        Text("Saved locally: Files → On My iPhone → McTrack → Takes")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        Button("Open Files") {
+                            if let url = URL(string: "shareddocuments://") {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(12)
+                }
                 .navigationTitle("Saved Takes")
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { store.showTakes = false } } }
                 .overlay {

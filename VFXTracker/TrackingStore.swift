@@ -70,6 +70,7 @@ final class TrackingStore: ObservableObject {
     private var writer: TakeWriter?
     private var activeFolder: URL?
     private var lastStatus = ""
+    private var activeTakeNumber = 0
 
     let takesFolder: URL = {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -108,7 +109,11 @@ final class TrackingStore: ObservableObject {
     func begin() {
         queue.async {
             guard self.writer == nil else { return }
-            let folder = self.takesFolder.appendingPathComponent("Take_" + Self.dateName(), isDirectory: true)
+            let number = UserDefaults.standard.integer(forKey: "McTrackNextTakeNumber") + 1
+            self.activeTakeNumber = number
+            UserDefaults.standard.set(number, forKey: "McTrackNextTakeNumber")
+            // A temporary name is used while recording; rename to completion time when saved.
+            let folder = self.takesFolder.appendingPathComponent(String(format: "Recording_%03d_%@", number, Self.dateName()), isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"), resolution: self.resolution, fps: self.fps)
@@ -131,17 +136,24 @@ final class TrackingStore: ObservableObject {
             self.activeFolder = nil
             let samples = self.samples
             let origin = self.origin
+            let takeNumber = self.activeTakeNumber
             DispatchQueue.main.async { self.recording = false; self.message = "Saving take…" }
             writer.finish { result in
                 do {
                     let track = TrackFile(format: "McTrack_v2", coordinateSystem: "Origin-local ARKit right-handed coordinates, meters; +Y up. Camera-to-origin transforms.", matrixLayout: "column-major", originToARWorld: flatten(origin), samples: samples)
                     let data = try JSONEncoder.pretty.encode(track)
                     try data.write(to: folder.appendingPathComponent("tracking.json"), options: .atomic)
-                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus]
+                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
+                    let finalName = String(format: "Take_%03d_%@", takeNumber, Self.friendlyDateName())
+                    var finalFolder = self.takesFolder.appendingPathComponent(finalName, isDirectory: true)
+                    if FileManager.default.fileExists(atPath: finalFolder.path) {
+                        finalFolder = self.takesFolder.appendingPathComponent(finalName + "_" + UUID().uuidString.prefix(6), isDirectory: true)
+                    }
+                    try FileManager.default.moveItem(at: folder, to: finalFolder)
                     DispatchQueue.main.async {
-                        self.latestTake = folder
+                        self.latestTake = finalFolder
                         self.message = result == nil ? "Take saved" : "Saved with video warning"
                         self.refreshTakes()
                     }
@@ -176,6 +188,13 @@ final class TrackingStore: ObservableObject {
             self.samples.append(TrackSample(elapsedSeconds: frame.timestamp - start, arTimestamp: frame.timestamp, cameraToOrigin: flatten(local), trackingState: state, fx: k.columns.0.x, fy: k.columns.1.y, cx: k.columns.2.x, cy: k.columns.2.y, imageWidth: Int(resolution.width), imageHeight: Int(resolution.height)))
             writer.appendVideo(frame.capturedImage, arTimestamp: frame.timestamp)
         }
+    }
+
+    private static func friendlyDateName() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MM-dd-yy_hh-mm-a"
+        return f.string(from: Date())
     }
 
     private static func dateName() -> String {
