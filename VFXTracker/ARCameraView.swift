@@ -123,8 +123,9 @@ struct ARCameraView: UIViewRepresentable {
             currentPlacement = result.worldTransform
             reticle.simdTransform = result.worldTransform
             reticle.isHidden = false
-            if gridOrigin == nil {
-                // The grid is established once in world space, not parented to the reticle.
+            if gridOrigin == nil || abs((gridOrigin?.columns.3.y ?? 0) - result.worldTransform.columns.3.y) > 0.025 {
+                // Follow the candidate surface height until the origin is committed.
+                // Rebase when moving between a desk and the floor; never move a placed origin.
                 gridOrigin = result.worldTransform
                 groundGrid.simdTransform = result.worldTransform
             }
@@ -181,9 +182,13 @@ struct ARCameraView: UIViewRepresentable {
         private func showMarkers(_ markers: [LiveMarker]) {
             guard let view = view else { return }
             let now = ProcessInfo.processInfo.systemUptime
+            // Keep the last measured pose visible during brief missed scans.
+            // Never fabricate marker samples or interpolate raw recorded data.
             let visibleIDs = Set(markers.map(\.id))
             for (id, node) in markerNodes where !visibleIDs.contains(id) {
-                node.isHidden = true
+                let age = now - (lastMarkerSeen[id] ?? 0)
+                node.isHidden = age > 0.45
+                node.opacity = age > 0.18 ? 0.58 : 1.0
             }
             for marker in markers {
                 let node: SCNNode
@@ -206,9 +211,10 @@ struct ARCameraView: UIViewRepresentable {
                 }
                 node.simdTransform = marker.transform
                 node.isHidden = false
+                node.opacity = 1.0
                 lastMarkerSeen[marker.id] = now
             }
-            for (id, node) in markerNodes where now - (lastMarkerSeen[id] ?? 0) > 0.35 {
+            for (id, node) in markerNodes where now - (lastMarkerSeen[id] ?? 0) > 0.45 {
                 node.isHidden = true
             }
         }
@@ -271,7 +277,7 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                cg.setFillColor(UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1).cgColor)
+                cg.setFillColor(UIColor(red: 1.0, green: 0.78, blue: 0.73, alpha: 1).cgColor)
                 // A 5 m square of fixed dots, 5 cm apart.
                 // The shader reveals only a small radius around the moving reticle.
                 let count = 100
@@ -280,7 +286,8 @@ struct ARCameraView: UIViewRepresentable {
                     for y in 0...count {
                         let px = CGFloat(x) * step
                         let py = CGFloat(y) * step
-                        cg.fillEllipse(in: CGRect(x: px - 3.0, y: py - 3.0, width: 6, height: 6))
+                        // A small bright core; surface shader controls the soft radial reveal.
+                        cg.fillEllipse(in: CGRect(x: px - 2.2, y: py - 2.2, width: 4.4, height: 4.4))
                     }
                 }
             }
@@ -294,7 +301,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 0.90 * (1.0 - smoothstep(0.05, 0.95, distanceMeters));
+                float fade = 0.72 * (1.0 - smoothstep(0.03, 0.67, distanceMeters));
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]
