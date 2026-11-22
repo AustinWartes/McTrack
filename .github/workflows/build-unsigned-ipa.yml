@@ -21,6 +21,24 @@ jobs:
           git clone --depth 1 https://github.com/AprilRobotics/apriltag.git AprilTagVendor/apriltag
           test -f AprilTagVendor/apriltag/tagStandard41h12.c
 
+      - name: Register AprilTag C sources without copying repository resources
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          root = Path('AprilTagVendor/apriltag')
+          # Only library C files: never copy README, CMake, tests or examples into the app.
+          files = sorted(root.glob('*.c')) + sorted((root / 'common').glob('*.c'))
+          files = [p for p in files if not any(x in p.name.lower() for x in ('demo', 'test', 'example'))]
+          assert files, 'No AprilTag C sources found'
+          project = Path('project.yml')
+          contents = project.read_text()
+          marker = '      # APRILTAG_C_SOURCES_INSERT_HERE'
+          assert marker in contents
+          entries = '\n'.join('      - path: ' + p.as_posix() for p in files)
+          project.write_text(contents.replace(marker, entries))
+          print(f'Added {len(files)} AprilTag C library files to the source build phase')
+          PYCODE
+
       - name: Generate Xcode project
         run: xcodegen generate
 

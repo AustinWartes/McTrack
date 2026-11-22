@@ -10,15 +10,7 @@ targets:
     sources:
       - path: VFXTracker
       - path: AprilTagBridge/TagBridge.c
-      - path: AprilTagVendor/apriltag
-        excludes:
-          - "apriltag_demo.c"
-          - "apriltag_test.c"
-          - "test*.c"
-          - "example*.c"
-          - "**/test*.c"
-          - "**/example*.c"
-          - "**/CMakeFiles/**"
+      # APRILTAG_C_SOURCES_INSERT_HERE
     info:
       path: VFXTracker/Info.plist
       properties:
