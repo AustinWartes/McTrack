@@ -7,7 +7,8 @@ struct ContentView: View {
     @StateObject private var store = TrackingStore()
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
-    private let coral = Color(red: 1.0, green: 0.36, blue: 0.38)
+    private let coral = Color(red: 1.0, green: 0.36, blue: 0.40)
+    private let brightCoral = Color(red: 1.0, green: 0.77, blue: 0.73)
     private let glass = Color.black.opacity(0.25)
 
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
@@ -15,8 +16,7 @@ struct ContentView: View {
         Capsule()
             .fill(.ultraThinMaterial)
             .overlay(Capsule().fill(Color.white.opacity(0.075)))
-            .overlay(Capsule().stroke(active ? coral.opacity(0.78) : .white.opacity(0.30), lineWidth: 1.1))
-            .overlay(Capsule().stroke(active ? Color(red: 1, green: 0.92, blue: 0.88).opacity(0.92) : .clear, lineWidth: 0.45).padding(1.5))
+            .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
             .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
     }
@@ -24,14 +24,14 @@ struct ContentView: View {
         RoundedRectangle(cornerRadius: radius)
             .fill(.ultraThinMaterial)
             .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.075)))
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? coral.opacity(0.85) : .white.opacity(0.33), lineWidth: 0.85))
-            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? .white.opacity(0.80) : .clear, lineWidth: 0.4).padding(1.5))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
     private var framedWordmark: some View {
         (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(coral))
             .font(.system(size: 23, weight: .bold, design: .rounded))
             .italic()
+            .shadow(color: coral.opacity(0.58), radius: 3)
             .padding(.horizontal, 15)
             .padding(.vertical, 5)
             .overlay {
@@ -44,16 +44,7 @@ struct ContentView: View {
                         path.move(to: CGPoint(x: 0, y: h-arm)); path.addLine(to: CGPoint(x: 0, y: h)); path.addLine(to: CGPoint(x: arm, y: h))
                         path.move(to: CGPoint(x: w-arm, y: h)); path.addLine(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: w, y: h-arm))
                     }
-                    .stroke(coral, style: StrokeStyle(lineWidth: 1.9, lineCap: .round, lineJoin: .round))
-                    .overlay {
-                        Path { path in
-                            let a: CGFloat = 9, w = geo.size.width, h = geo.size.height
-                            path.move(to: CGPoint(x:a,y:1)); path.addLine(to: CGPoint(x:1,y:1)); path.addLine(to: CGPoint(x:1,y:a))
-                            path.move(to: CGPoint(x:w-a,y:1)); path.addLine(to: CGPoint(x:w-1,y:1)); path.addLine(to: CGPoint(x:w-1,y:a))
-                            path.move(to: CGPoint(x:1,y:h-a)); path.addLine(to: CGPoint(x:1,y:h-1)); path.addLine(to: CGPoint(x:a,y:h-1))
-                            path.move(to: CGPoint(x:w-a,y:h-1)); path.addLine(to: CGPoint(x:w-1,y:h-1)); path.addLine(to: CGPoint(x:w-1,y:h-a))
-                        }.stroke(Color(red:1,green:0.93,blue:0.89), style: StrokeStyle(lineWidth:0.65,lineCap:.round,lineJoin:.round))
-                    }
+                    .stroke(LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing), style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
                     .shadow(color: coral, radius: 5)
                     .shadow(color: coral.opacity(0.85), radius: 12)
                 }
@@ -121,8 +112,10 @@ struct ContentView: View {
 
                 HStack(spacing: 7) {
                     Button { store.cycleTrackingMode() } label: {
-                        Label(store.trackingMode.title, systemImage: store.trackingMode.symbol)
-                            .foregroundStyle(coral)
+                        HStack(spacing: 5) {
+                            Image(systemName: store.trackingMode.symbol).foregroundStyle(coral)
+                            Text(store.trackingMode.title).foregroundStyle(.white)
+                        }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .background(glassCapsule(active: true))

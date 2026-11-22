@@ -257,18 +257,7 @@ struct ARCameraView: UIViewRepresentable {
             node.simdPosition = (a + b) / 2
             node.simdOrientation = simd_quatf(from: SIMD3<Float>(0,1,0), to: simd_normalize(delta))
             parent.addChildNode(node)
-            // Secondary translucent sleeve simulates optical bloom around 3D axes/brackets.
-            let halo = SCNCylinder(radius: radius * 2.7, height: CGFloat(length))
-            halo.radialSegmentCount = 8
-            let glow = material(color.withAlphaComponent(0.13))
-            glow.blendMode = .add
-            glow.readsFromDepthBuffer = false
-            glow.writesToDepthBuffer = false
-            halo.materials = [glow]
-            let glowNode = SCNNode(geometry: halo)
-            glowNode.simdPosition = node.simdPosition
-            glowNode.simdOrientation = node.simdOrientation
-            parent.addChildNode(glowNode)
+
         }
 
         // All placement graphics are flat, unlit, and double-sided.
@@ -278,7 +267,7 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.36, blue: 0.38, alpha: 1)
+                let coral = UIColor(red: 1, green: 0.36, blue: 0.40, alpha: 1)
                 let ivory = UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1)
                 for i in stride(from: 70, through: 18, by: -4) {
                     cg.setStrokeColor(coral.withAlphaComponent(0.025 + CGFloat(70-i) / 3500).cgColor)
@@ -312,7 +301,7 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.35, blue: 0.38, alpha: 1)
+                let coral = UIColor(red: 1, green: 0.36, blue: 0.40, alpha: 1)
                 let count = 100
                 let step = size / CGFloat(count)
                 // Very faint connecting lines. The alpha-reveal shader fades the entire pattern.
@@ -332,16 +321,16 @@ struct ARCameraView: UIViewRepresentable {
                         // saturated inner glow, and a small white-hot center.
                         // Continuous radial gradient rather than visibly nested flat circles.
                         let colors = [
-                            UIColor(red: 1, green: 0.98, blue: 0.94, alpha: 1).cgColor,
-                            UIColor(red: 1, green: 0.65, blue: 0.59, alpha: 0.92).cgColor,
-                            coral.withAlphaComponent(0.36).cgColor,
-                            coral.withAlphaComponent(0.07).cgColor,
+                            UIColor(red: 1, green: 0.75, blue: 0.72, alpha: 0.94).cgColor,
+                            UIColor(red: 1, green: 0.53, blue: 0.55, alpha: 0.88).cgColor,
+                            coral.withAlphaComponent(0.42).cgColor,
+                            coral.withAlphaComponent(0.10).cgColor,
                             coral.withAlphaComponent(0).cgColor
                         ] as CFArray
                         let positions: [CGFloat] = [0, 0.16, 0.37, 0.68, 1]
                         if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: positions) {
                             cg.drawRadialGradient(gradient, startCenter: CGPoint(x:px,y:py), startRadius:0,
-                                                  endCenter:CGPoint(x:px,y:py), endRadius:6.1, options:[])
+                                                  endCenter:CGPoint(x:px,y:py), endRadius:4.5, options:[])
                         }
                     }
                 }
