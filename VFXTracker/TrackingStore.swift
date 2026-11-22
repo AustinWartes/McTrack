@@ -53,7 +53,7 @@ final class TrackingStore: ObservableObject {
         queue.async {
             self.activeTrackingMode = next
             // Clear previous mode's preview immediately, including when there are no detections.
-            DispatchQueue.main.async { [weak self] in self?.onMarkers?([]) }
+            DispatchQueue.main.async { [weak self] in self?.onClearMarkers?() }
         }
         if next == .rigid { message = "Rigid-object tracking coming soon" }
     }
@@ -100,6 +100,7 @@ final class TrackingStore: ObservableObject {
     private var markerObservations: [MarkerObservation] = []
     // UI receives only the most recent scan. Never retain pixel buffers.
     var onMarkers: (([LiveMarker]) -> Void)?
+    var onClearMarkers: (() -> Void)?
 
     let takesFolder: URL = {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -213,10 +214,11 @@ final class TrackingStore: ObservableObject {
             // Detection runs even when not recording, allowing live marker previews.
             if self.activeTrackingMode == .tags {
                 let elapsed = self.writer != nil ? self.startTimestamp.map { frame.timestamp - $0 } : nil
-                let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed)
+                if let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed) {
                 if self.writer != nil { self.markerObservations.append(contentsOf: observations) }
                 // Empty scans also update the UI, so stale gizmos can be hidden.
                 DispatchQueue.main.async { [weak self] in self?.onMarkers?(live) }
+                }
             }
             guard let writer = self.writer else { return }
             guard frame.timestamp > self.lastTimestamp else { return }

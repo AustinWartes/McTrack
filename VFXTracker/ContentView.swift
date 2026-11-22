@@ -8,7 +8,46 @@ struct ContentView: View {
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
     private let coral = Color(red: 0.96, green: 0.43, blue: 0.42)
-    private let glass = Color.black.opacity(0.37)
+    private let glass = Color.black.opacity(0.25)
+
+    private func glassCapsule(active: Bool = false) -> some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(Color.black.opacity(0.19)))
+            .overlay(Capsule().stroke(active ? coral.opacity(0.95) : .white.opacity(0.30), lineWidth: active ? 1.5 : 0.8))
+            .shadow(color: active ? coral.opacity(0.85) : .clear, radius: 11)
+            .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 22)
+    }
+    private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(.ultraThinMaterial)
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(.black.opacity(0.19)))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(active ? coral : .white.opacity(0.25), lineWidth: 1))
+            .shadow(color: active ? coral.opacity(0.70) : .clear, radius: 12)
+    }
+    private var framedWordmark: some View {
+        (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(coral))
+            .font(.system(size: 23, weight: .bold, design: .rounded))
+            .italic()
+            .padding(.horizontal, 15)
+            .padding(.vertical, 5)
+            .overlay {
+                GeometryReader { geo in
+                    let w = geo.size.width, h = geo.size.height
+                    Path { path in
+                        let arm: CGFloat = 10
+                        path.move(to: CGPoint(x: arm, y: 0)); path.addLine(to: .zero); path.addLine(to: CGPoint(x: 0, y: arm))
+                        path.move(to: CGPoint(x: w-arm, y: 0)); path.addLine(to: CGPoint(x: w, y: 0)); path.addLine(to: CGPoint(x: w, y: arm))
+                        path.move(to: CGPoint(x: 0, y: h-arm)); path.addLine(to: CGPoint(x: 0, y: h)); path.addLine(to: CGPoint(x: arm, y: h))
+                        path.move(to: CGPoint(x: w-arm, y: h)); path.addLine(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: w, y: h-arm))
+                    }
+                    .stroke(coral, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .shadow(color: coral, radius: 5)
+                    .shadow(color: coral.opacity(0.85), radius: 12)
+                }
+            }
+            .shadow(color: coral.opacity(0.35), radius: 8)
+    }
 
     var body: some View {
         ZStack {
@@ -16,12 +55,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Image(systemName: "viewfinder")
-                        .foregroundStyle(coral)
-                        .font(.system(size: 19, weight: .medium))
-                    (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(coral))
-                        .font(.system(size: 23, weight: .bold, design: .rounded))
-                        .italic()
+                    framedWordmark
                     Spacer()
                     Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -30,8 +64,9 @@ struct ContentView: View {
                         Image(systemName: "gearshape")
                             .font(.system(size: 19))
                             .frame(width: 42, height: 42)
-                            .background(glass, in: Circle())
-                            .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.22), lineWidth: 1))
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
+                            .shadow(color: showCameraSettings ? coral.opacity(0.95) : coral.opacity(0.22), radius: showCameraSettings ? 16 : 5)
                     }
                     .accessibilityLabel("Camera settings")
                 }
@@ -50,8 +85,7 @@ struct ContentView: View {
                             .foregroundStyle(.white.opacity(0.76))
                     }
                     .padding(14)
-                    .background(glass, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(coral.opacity(0.45), lineWidth: 1))
+                    .background(glassRounded(active: true))
                     .padding(.horizontal, 16).padding(.top, 8)
                 }
 
@@ -63,14 +97,12 @@ struct ContentView: View {
                             .disabled(store.recording)
                             .font(.system(size: 12, weight: .semibold))
                             .padding(.horizontal, 13).padding(.vertical, 11)
-                            .background(glass, in: Capsule())
-                            .overlay(Capsule().stroke(coral.opacity(0.45), lineWidth: 1))
+                            .background(glassCapsule(active: true))
                     } else {
                         Label(store.canPlaceOrigin ? "Tap to Set Origin" : "Scan Surface", systemImage: "scope")
                             .font(.system(size: 12, weight: .semibold))
                             .padding(.horizontal, 13).padding(.vertical, 11)
-                            .background(glass, in: Capsule())
-                            .overlay(Capsule().stroke(coral.opacity(0.45), lineWidth: 1))
+                            .background(glassCapsule(active: true))
                     }
                 }
                 .padding(.horizontal, 18).padding(.bottom, 12)
@@ -78,7 +110,10 @@ struct ContentView: View {
                 HStack(spacing: 7) {
                     Button { store.cycleTrackingMode() } label: {
                         Label(store.trackingMode.title, systemImage: store.trackingMode.symbol)
+                            .foregroundStyle(coral)
                             .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(glassCapsule(active: true))
                     }
                     .disabled(store.recording)
                     .accessibilityLabel("Cycle tracking mode")
@@ -96,9 +131,8 @@ struct ContentView: View {
                 }
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 13)
-                .background(glass, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.23), lineWidth: 1))
+                .padding(.horizontal, 9).padding(.vertical, 6)
+                .background(glassRounded())
                 .padding(.horizontal, 16).padding(.bottom, 12)
 
                 HStack(spacing: 10) {
@@ -109,14 +143,14 @@ struct ContentView: View {
                             .font(.system(size: 15, weight: .bold))
                             .frame(maxWidth: .infinity).frame(height: 52)
                             .background(store.recording ? coral : .white, in: RoundedRectangle(cornerRadius: 14))
+                            .shadow(color: coral.opacity(0.45), radius: 11)
                             .foregroundStyle(store.recording ? .white : .black)
                     }
                     Button { store.refreshTakes(); store.showTakes = true } label: {
                         Image(systemName: "folder")
                             .font(.system(size: 19, weight: .medium))
                             .frame(width: 54, height: 52)
-                            .background(glass, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.24), lineWidth: 1))
+                            .background(glassRounded(14))
                     }
                     .foregroundStyle(.white)
                 }

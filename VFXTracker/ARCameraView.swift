@@ -92,6 +92,7 @@ struct ARCameraView: UIViewRepresentable {
             makeGizmo()
             makeGroundGrid()
             store.onMarkers = { [weak self] markers in self?.showMarkers(markers) }
+            store.onClearMarkers = { [weak self] in self?.clearMarkerPreview() }
             view.scene.rootNode.addChildNode(reticle)
             view.scene.rootNode.addChildNode(gizmo)
             view.scene.rootNode.addChildNode(groundGrid)
@@ -169,6 +170,12 @@ struct ARCameraView: UIViewRepresentable {
             store.setOrigin(matrix)
         }
 
+        func clearMarkerPreview() {
+            markerNodes.values.forEach { $0.removeFromParentNode() }
+            markerNodes.removeAll()
+            lastMarkerSeen.removeAll()
+        }
+
         func resetPlacement() {
             guard !store.recording else { return }
             placed = false
@@ -187,8 +194,9 @@ struct ARCameraView: UIViewRepresentable {
             let visibleIDs = Set(markers.map(\.id))
             for (id, node) in markerNodes where !visibleIDs.contains(id) {
                 let age = now - (lastMarkerSeen[id] ?? 0)
-                node.isHidden = age > 0.45
-                node.opacity = age > 0.18 ? 0.58 : 1.0
+                // Retain the last measured pose until mode reset; never invent measurements.
+                node.isHidden = false
+                node.opacity = age > 0.20 ? 0.48 : 1.0
             }
             for marker in markers {
                 let node: SCNNode
@@ -199,6 +207,17 @@ struct ARCameraView: UIViewRepresentable {
                     segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0.065,0,0), radius: 0.0015, color: .red, parent: node)
                     segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0.065,0), radius: 0.0015, color: .green, parent: node)
                     segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0,0.065), radius: 0.0015, color: .blue, parent: node)
+                    // Emissive corner brackets around the physical 88.9mm tag boundary.
+                    let half: Float = 0.04445
+                    let arm: Float = 0.014
+                    let bracketColor = UIColor(red: 1, green: 0.38, blue: 0.38, alpha: 1)
+                    for sx: Float in [-1, 1] {
+                        for sy: Float in [-1, 1] {
+                            let x = sx * half, y = sy * half
+                            segment(SIMD3<Float>(x, y, 0.001), SIMD3<Float>(x-sx*arm, y, 0.001), radius: 0.0013, color: bracketColor, parent: node)
+                            segment(SIMD3<Float>(x, y, 0.001), SIMD3<Float>(x, y-sy*arm, 0.001), radius: 0.0013, color: bracketColor, parent: node)
+                        }
+                    }
                     let label = SCNText(string: "TAG \(marker.id)", extrusionDepth: 0)
                     label.font = UIFont.monospacedSystemFont(ofSize: 8, weight: .bold)
                     label.firstMaterial = material(.white)
@@ -214,9 +233,7 @@ struct ARCameraView: UIViewRepresentable {
                 node.opacity = 1.0
                 lastMarkerSeen[marker.id] = now
             }
-            for (id, node) in markerNodes where now - (lastMarkerSeen[id] ?? 0) > 0.45 {
-                node.isHidden = true
-            }
+
         }
 
         private func material(_ color: UIColor) -> SCNMaterial {
@@ -250,6 +267,11 @@ struct ARCameraView: UIViewRepresentable {
                 let cg = context.cgContext
                 let coral = UIColor(red: 231/255, green: 125/255, blue: 118/255, alpha: 1)
                 let ivory = UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1)
+                for i in stride(from: 70, through: 18, by: -4) {
+                    cg.setStrokeColor(coral.withAlphaComponent(0.025 + CGFloat(70-i) / 3500).cgColor)
+                    cg.setLineWidth(CGFloat(i))
+                    cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
+                }
                 cg.setStrokeColor(coral.cgColor)
                 cg.setLineWidth(17)
                 cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
@@ -277,17 +299,31 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                cg.setFillColor(UIColor(red: 1.0, green: 0.78, blue: 0.73, alpha: 1).cgColor)
-                // A 5 m square of fixed dots, 5 cm apart.
-                // The shader reveals only a small radius around the moving reticle.
+                let coral = UIColor(red: 1, green: 0.29, blue: 0.32, alpha: 1)
                 let count = 100
                 let step = size / CGFloat(count)
+                // Very faint connecting lines. The alpha-reveal shader fades the entire pattern.
+                cg.setStrokeColor(coral.withAlphaComponent(0.13).cgColor)
+                cg.setLineWidth(0.65)
+                for n in 0...count {
+                    let v = CGFloat(n) * step
+                    cg.move(to: CGPoint(x: v, y: 0)); cg.addLine(to: CGPoint(x: v, y: size))
+                    cg.move(to: CGPoint(x: 0, y: v)); cg.addLine(to: CGPoint(x: size, y: v))
+                }
+                cg.strokePath()
                 for x in 0...count {
                     for y in 0...count {
                         let px = CGFloat(x) * step
                         let py = CGFloat(y) * step
-                        // A small bright core; surface shader controls the soft radial reveal.
-                        cg.fillEllipse(in: CGRect(x: px - 2.2, y: py - 2.2, width: 4.4, height: 4.4))
+                        // Deliberately exaggerated coral bloom: broad translucent halo,
+                        // saturated inner glow, and a small white-hot center.
+                        for (radius, alpha) in [(10.0, 0.045), (7.0, 0.09), (4.5, 0.20), (2.5, 0.60)] {
+                            let r = CGFloat(radius)
+                            cg.setFillColor(coral.withAlphaComponent(CGFloat(alpha)).cgColor)
+                            cg.fillEllipse(in: CGRect(x: px-r, y: py-r, width: r*2, height: r*2))
+                        }
+                        cg.setFillColor(UIColor(red: 1, green: 0.94, blue: 0.88, alpha: 1).cgColor)
+                        cg.fillEllipse(in: CGRect(x: px-1.05, y: py-1.05, width: 2.1, height: 2.1))
                     }
                 }
             }
@@ -301,7 +337,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 0.72 * (1.0 - smoothstep(0.03, 0.67, distanceMeters));
+                float fade = 0.95 * (1.0 - smoothstep(0.03, 0.57, distanceMeters));
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]

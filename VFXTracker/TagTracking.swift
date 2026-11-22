@@ -30,8 +30,10 @@ final class TagTracking {
     init() { detector = mc_tag_create() }
     deinit { if let detector { mc_tag_destroy(detector) } }
 
-    func detect(frame: ARFrame, origin: simd_float4x4, elapsed: Double?) -> ([LiveMarker], [MarkerObservation]) {
-        guard let detector, frame.timestamp - lastScan >= 1.0 / 30.0 else { return ([], []) }
+    func detect(frame: ARFrame, origin: simd_float4x4, elapsed: Double?) -> ([LiveMarker], [MarkerObservation])? {
+        // nil = scan skipped; empty arrays = completed scan without detections.
+        guard let detector else { return nil }
+        guard lastScan < 0 || frame.timestamp - lastScan >= 1.0 / 31.0 else { return nil }
         lastScan = frame.timestamp
         let pixel = frame.capturedImage
         guard CVPixelBufferGetPlaneCount(pixel) > 0 else { return ([], []) }
