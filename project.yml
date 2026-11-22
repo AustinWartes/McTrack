@@ -9,6 +9,16 @@ targets:
     platform: iOS
     sources:
       - path: VFXTracker
+      - path: AprilTagBridge/TagBridge.c
+      - path: AprilTagVendor/apriltag
+        excludes:
+          - "apriltag_demo.c"
+          - "apriltag_test.c"
+          - "test*.c"
+          - "example*.c"
+          - "**/test*.c"
+          - "**/example*.c"
+          - "**/CMakeFiles/**"
     info:
       path: VFXTracker/Info.plist
       properties:
@@ -25,6 +35,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.artisttools.VFXTracker
         SWIFT_VERSION: 5.0
+        SWIFT_OBJC_BRIDGING_HEADER: AprilTagBridge/TagBridge.h
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/AprilTagVendor/apriltag $(SRCROOT)/AprilTagVendor/apriltag/common"
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: 17.0
         GENERATE_INFOPLIST_FILE: YES

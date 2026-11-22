@@ -43,6 +43,8 @@ struct ARCameraView: UIViewRepresentable {
         private let reticle = SCNNode()
         private let gizmo = SCNNode()
         private let groundGrid = SCNNode()
+        private var markerNodes: [Int: SCNNode] = [:]
+        private var lastMarkerSeen: [Int: TimeInterval] = [:]
         private var gridMaterial: SCNMaterial?
         private var gridOrigin: simd_float4x4?
         private var lastRaycast: TimeInterval = 0
@@ -89,6 +91,7 @@ struct ARCameraView: UIViewRepresentable {
             makeReticle()
             makeGizmo()
             makeGroundGrid()
+            store.onMarkers = { [weak self] markers in self?.showMarkers(markers) }
             view.scene.rootNode.addChildNode(reticle)
             view.scene.rootNode.addChildNode(gizmo)
             view.scene.rootNode.addChildNode(groundGrid)
@@ -173,6 +176,37 @@ struct ARCameraView: UIViewRepresentable {
             gridOrigin = nil
             currentPlacement = nil
             store.resetOrigin()
+        }
+
+        private func showMarkers(_ markers: [LiveMarker]) {
+            guard let view = view else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            for marker in markers {
+                let node: SCNNode
+                if let existing = markerNodes[marker.id] { node = existing }
+                else {
+                    node = SCNNode()
+                    // Short RGB axes, centered at the tag, oriented in tag local coordinates.
+                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0.065,0,0), radius: 0.0015, color: .red, parent: node)
+                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0.065,0), radius: 0.0015, color: .green, parent: node)
+                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0,0.065), radius: 0.0015, color: .blue, parent: node)
+                    let label = SCNText(string: "TAG \(marker.id)", extrusionDepth: 0)
+                    label.font = UIFont.monospacedSystemFont(ofSize: 8, weight: .bold)
+                    label.firstMaterial = material(.white)
+                    let labelNode = SCNNode(geometry: label)
+                    labelNode.scale = SCNVector3(0.002, 0.002, 0.002)
+                    labelNode.position = SCNVector3(0, 0.075, 0)
+                    node.addChildNode(labelNode)
+                    view.scene.rootNode.addChildNode(node)
+                    markerNodes[marker.id] = node
+                }
+                node.simdTransform = marker.transform
+                node.isHidden = false
+                lastMarkerSeen[marker.id] = now
+            }
+            for (id, node) in markerNodes where now - (lastMarkerSeen[id] ?? 0) > 0.35 {
+                node.isHidden = true
+            }
         }
 
         private func material(_ color: UIColor) -> SCNMaterial {

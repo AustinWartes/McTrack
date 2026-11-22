@@ -15,6 +15,12 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Fetch official AprilTag 3 C detector
+        run: |
+          mkdir -p AprilTagVendor
+          git clone --depth 1 https://github.com/AprilRobotics/apriltag.git AprilTagVendor/apriltag
+          test -f AprilTagVendor/apriltag/tagStandard41h12.c
+
       - name: Generate Xcode project
         run: xcodegen generate
 
