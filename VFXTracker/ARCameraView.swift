@@ -210,7 +210,7 @@ struct ARCameraView: UIViewRepresentable {
                     // Emissive corner brackets around the physical 88.9mm tag boundary.
                     let half: Float = 0.04445
                     let arm: Float = 0.014
-                    let bracketColor = UIColor(red: 1, green: 0.38, blue: 0.38, alpha: 1)
+                    let bracketColor = UIColor(red: 1, green: 0.16, blue: 0.24, alpha: 1)
                     for sx: Float in [-1, 1] {
                         for sy: Float in [-1, 1] {
                             let x = sx * half, y = sy * half
@@ -267,8 +267,8 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.36, blue: 0.40, alpha: 1)
-                let ivory = UIColor(red: 242/255, green: 240/255, blue: 236/255, alpha: 1)
+                let coral = UIColor(red: 1, green: 0.24, blue: 0.34, alpha: 1)
+                let ivory = UIColor(red: 1, green: 0.72, blue: 0.73, alpha: 1)
                 for i in stride(from: 70, through: 18, by: -4) {
                     cg.setStrokeColor(coral.withAlphaComponent(0.025 + CGFloat(70-i) / 3500).cgColor)
                     cg.setLineWidth(CGFloat(i))
@@ -276,6 +276,9 @@ struct ARCameraView: UIViewRepresentable {
                 }
                 cg.setStrokeColor(coral.cgColor)
                 cg.setLineWidth(17)
+                cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
+                cg.setStrokeColor(UIColor(red: 1, green: 0.66, blue: 0.69, alpha: 0.96).cgColor)
+                cg.setLineWidth(6)
                 cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
                 cg.setStrokeColor(coral.cgColor)
                 cg.setLineWidth(12)
@@ -301,7 +304,7 @@ struct ARCameraView: UIViewRepresentable {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
             let image = renderer.image { context in
                 let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.36, blue: 0.40, alpha: 1)
+                let coral = UIColor(red: 1, green: 0.24, blue: 0.34, alpha: 1)
                 let count = 100
                 let step = size / CGFloat(count)
                 // Very faint connecting lines. The alpha-reveal shader fades the entire pattern.
@@ -321,16 +324,16 @@ struct ARCameraView: UIViewRepresentable {
                         // saturated inner glow, and a small white-hot center.
                         // Continuous radial gradient rather than visibly nested flat circles.
                         let colors = [
-                            UIColor(red: 1, green: 0.75, blue: 0.72, alpha: 0.94).cgColor,
-                            UIColor(red: 1, green: 0.53, blue: 0.55, alpha: 0.88).cgColor,
-                            coral.withAlphaComponent(0.42).cgColor,
-                            coral.withAlphaComponent(0.10).cgColor,
+                            UIColor(red: 1, green: 0.68, blue: 0.70, alpha: 0.98).cgColor,
+                            UIColor(red: 1, green: 0.36, blue: 0.45, alpha: 0.94).cgColor,
+                            coral.withAlphaComponent(0.72).cgColor,
+                            coral.withAlphaComponent(0.20).cgColor,
                             coral.withAlphaComponent(0).cgColor
                         ] as CFArray
                         let positions: [CGFloat] = [0, 0.16, 0.37, 0.68, 1]
                         if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: positions) {
                             cg.drawRadialGradient(gradient, startCenter: CGPoint(x:px,y:py), startRadius:0,
-                                                  endCenter:CGPoint(x:px,y:py), endRadius:4.5, options:[])
+                                                  endCenter:CGPoint(x:px,y:py), endRadius:3.25, options:[])
                         }
                     }
                 }
@@ -339,7 +342,9 @@ struct ARCameraView: UIViewRepresentable {
             let m = material(.white)
             m.diffuse.contents = image
             m.transparencyMode = .aOne
-            m.blendMode = .add
+            // Additive compositing was washing the red channel to white over bright
+            // camera footage. Alpha blending retains the saturated coral hue.
+            m.blendMode = .alpha
             m.writesToDepthBuffer = false
             m.readsFromDepthBuffer = false
             m.setValue(SCNVector3(0.5, 0.5, 0), forKey: "revealUV")

@@ -7,8 +7,8 @@ struct ContentView: View {
     @StateObject private var store = TrackingStore()
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
-    private let coral = Color(red: 1.0, green: 0.36, blue: 0.40)
-    private let brightCoral = Color(red: 1.0, green: 0.77, blue: 0.73)
+    private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
+    private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
     private let glass = Color.black.opacity(0.25)
 
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
@@ -32,6 +32,15 @@ struct ContentView: View {
             .font(.system(size: 23, weight: .bold, design: .rounded))
             .italic()
             .shadow(color: coral.opacity(0.58), radius: 3)
+            .overlay(alignment: .trailing) {
+                // A fine, luminous Track outline; overlay aligns to the trailing word.
+                Text("Track")
+                    .font(.system(size: 23, weight: .bold, design: .rounded))
+                    .italic()
+                    .foregroundStyle(brightCoral.opacity(0.22))
+                    .shadow(color: brightCoral.opacity(0.70), radius: 1.2)
+                    .allowsHitTesting(false)
+            }
             .padding(.horizontal, 15)
             .padding(.vertical, 5)
             .overlay {
