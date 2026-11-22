@@ -28,8 +28,9 @@ jobs:
           root = Path('AprilTagVendor/apriltag')
           # Only library C files: never copy README, CMake, tests or examples into the app.
           files = sorted(root.glob('*.c')) + sorted((root / 'common').glob('*.c'))
-          files = [p for p in files if not any(x in p.name.lower() for x in ('demo', 'test', 'example'))]
+          files = [p for p in files if not any(x in p.name.lower() for x in ('demo', 'test', 'example', 'pywrap', 'python'))]
           assert files, 'No AprilTag C sources found'
+          assert not any('pywrap' in p.name.lower() for p in files), 'Python wrapper must not be compiled for iOS'
           project = Path('project.yml')
           contents = project.read_text()
           marker = '      # APRILTAG_C_SOURCES_INSERT_HERE'
