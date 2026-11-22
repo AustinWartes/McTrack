@@ -36,7 +36,8 @@ int mc_tag_detect(void *opaque, const uint8_t *y, int width, int height, int str
     for (int i = 0; i < zarray_size(detections) && count < capacity; i++) {
         apriltag_detection_t *d;
         zarray_get(detections, i, &d);
-        if (d->decision_margin < 15.0) continue;
+        // Keep successfully decoded detections; retain decision margin for later quality assessment.
+        // No additional hardcoded confidence cutoff.
         apriltag_detection_info_t info = { .det = d, .tagsize = tag_size,
             .fx = fx, .fy = fy, .cx = cx, .cy = cy };
         apriltag_pose_t pose;

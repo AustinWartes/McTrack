@@ -181,6 +181,10 @@ struct ARCameraView: UIViewRepresentable {
         private func showMarkers(_ markers: [LiveMarker]) {
             guard let view = view else { return }
             let now = ProcessInfo.processInfo.systemUptime
+            let visibleIDs = Set(markers.map(\.id))
+            for (id, node) in markerNodes where !visibleIDs.contains(id) {
+                node.isHidden = true
+            }
             for marker in markers {
                 let node: SCNNode
                 if let existing = markerNodes[marker.id] { node = existing }
@@ -290,7 +294,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 0.72 * (1.0 - smoothstep(0.10, 0.62, distanceMeters));
+                float fade = 0.90 * (1.0 - smoothstep(0.05, 0.95, distanceMeters));
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]

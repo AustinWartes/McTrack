@@ -31,7 +31,7 @@ final class TagTracking {
     deinit { if let detector { mc_tag_destroy(detector) } }
 
     func detect(frame: ARFrame, origin: simd_float4x4, elapsed: Double?) -> ([LiveMarker], [MarkerObservation]) {
-        guard let detector, frame.timestamp - lastScan >= 1.0 / 20.0 else { return ([], []) }
+        guard let detector, frame.timestamp - lastScan >= 1.0 / 30.0 else { return ([], []) }
         lastScan = frame.timestamp
         let pixel = frame.capturedImage
         guard CVPixelBufferGetPlaneCount(pixel) > 0 else { return ([], []) }

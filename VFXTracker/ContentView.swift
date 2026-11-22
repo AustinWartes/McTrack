@@ -34,6 +34,31 @@ struct ContentView: View {
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .background(.black.opacity(0.42))
                 Spacer()
+                HStack(spacing: 7) {
+                    Text("TRACKING MODE")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.8))
+                    Label(store.trackingMode.title, systemImage: store.trackingMode.symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(minWidth: 84, alignment: .leading)
+                    Button { store.cycleTrackingMode() } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 34, height: 32)
+                            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .disabled(store.recording)
+                    .accessibilityLabel("Change tracking mode")
+                    Spacer(minLength: 0)
+                    if store.trackingMode == .rigid {
+                        Text("SOON").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.yellow)
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 13).padding(.vertical, 7)
+                .background(.black.opacity(0.46), in: RoundedRectangle(cornerRadius: 11))
+                .padding(.horizontal, 16).padding(.bottom, 7)
                 HStack(spacing: 8) {
                     Button { store.cycleResolution() } label: {
                         Text(store.resolution == 2160 ? "4K" : "1080p")

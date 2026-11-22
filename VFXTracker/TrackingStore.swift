@@ -32,7 +32,32 @@ func flatten(_ m: simd_float4x4) -> [Float] {
      m.columns.3.x,m.columns.3.y,m.columns.3.z,m.columns.3.w]
 }
 
+enum TrackingMode: Int, CaseIterable {
+    case camera, tags, rigid
+    var title: String {
+        switch self { case .camera: return "Camera"; case .tags: return "Tags"; case .rigid: return "Rigid" }
+    }
+    var symbol: String {
+        switch self { case .camera: return "video"; case .tags: return "viewfinder"; case .rigid: return "cube" }
+    }
+}
+
 final class TrackingStore: ObservableObject {
+    @Published private(set) var trackingMode: TrackingMode = .camera
+    private var activeTrackingMode: TrackingMode = .camera // Access only on mctrack.frames.
+
+    func cycleTrackingMode() {
+        guard !recording else { return }
+        let next = TrackingMode(rawValue: (trackingMode.rawValue + 1) % TrackingMode.allCases.count) ?? .camera
+        trackingMode = next
+        queue.async {
+            self.activeTrackingMode = next
+            // Clear previous mode's preview immediately, including when there are no detections.
+            DispatchQueue.main.async { [weak self] in self?.onMarkers?([]) }
+        }
+        if next == .rigid { message = "Rigid-object tracking coming soon" }
+    }
+
     @Published var recording = false
     @Published var resolution = 1080
     @Published var fps = 30
@@ -141,6 +166,7 @@ final class TrackingStore: ObservableObject {
             self.activeFolder = nil
             let samples = self.samples
             let markerSamples = self.markerObservations
+            let recordedMode = self.activeTrackingMode
             let origin = self.origin
             let takeNumber = self.activeTakeNumber
             DispatchQueue.main.async { self.recording = false; self.message = "Saving take…" }
@@ -151,7 +177,7 @@ final class TrackingStore: ObservableObject {
                     try data.write(to: folder.appendingPathComponent("tracking.json"), options: .atomic)
                     let markerFile = MarkerFile(format: "McTrack_Markers_v1", family: "tagStandard41h12", tagSizeMeters: 0.0889, coordinateSystem: "origin-local ARKit right-handed meters, +Y up, column-major", observations: markerSamples)
                     try JSONEncoder.pretty.encode(markerFile).write(to: folder.appendingPathComponent("markers.json"), options: .atomic)
-                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
+                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
                     let finalName = String(format: "Take_%03d_%@", takeNumber, Self.friendlyDateName())
@@ -185,10 +211,11 @@ final class TrackingStore: ObservableObject {
                 DispatchQueue.main.async { self.status = state }
             }
             // Detection runs even when not recording, allowing live marker previews.
-            let elapsed = self.writer != nil ? self.startTimestamp.map { frame.timestamp - $0 } : nil
-            let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed)
-            if !live.isEmpty {
+            if self.activeTrackingMode == .tags {
+                let elapsed = self.writer != nil ? self.startTimestamp.map { frame.timestamp - $0 } : nil
+                let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed)
                 if self.writer != nil { self.markerObservations.append(contentsOf: observations) }
+                // Empty scans also update the UI, so stale gizmos can be hidden.
                 DispatchQueue.main.async { [weak self] in self?.onMarkers?(live) }
             }
             guard let writer = self.writer else { return }
