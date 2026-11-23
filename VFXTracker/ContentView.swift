@@ -15,16 +15,16 @@ struct ContentView: View {
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
-            .fill(.ultraThinMaterial)
-            .overlay(Capsule().fill(Color.white.opacity(0.025)))
+            .fill(.ultraThinMaterial).opacity(0.78)
+            .overlay(Capsule().fill(Color.white.opacity(0.055)))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
             .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
     }
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.025)))
+            .fill(.ultraThinMaterial).opacity(0.78)
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.055)))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
@@ -36,8 +36,6 @@ struct ContentView: View {
                 .shadow(color: .white.opacity(0.25), radius: 8)
             Text("Track")
                 .foregroundStyle(coral)
-                // The lighter salmon is a very thin edge highlight around the red fill.
-                .shadow(color: brightCoral.opacity(0.95), radius: 0.65)
                 .shadow(color: coral.opacity(0.90), radius: 5)
                 .shadow(color: coral.opacity(0.55), radius: 12)
         }
@@ -120,6 +118,44 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 18).padding(.bottom, 12)
 
+                if store.trackingMode == .rigid {
+                    VStack(spacing: 6) {
+                        HStack(spacing: 8) {
+                            Button { showRigidSettings = true } label: {
+                                Label("Cube Settings", systemImage: "cube.transparent")
+                            }
+                            Spacer(minLength: 3)
+                            if store.rigidCalibrating {
+                                Text("\(store.rigidFaceCount)/5 faces")
+                                    .foregroundStyle(brightCoral)
+                            } else {
+                                Text(store.rigidReady ? "READY" : "NOT CALIBRATED")
+                                    .foregroundStyle(store.rigidReady ? .green : brightCoral)
+                            }
+                            Button(store.rigidCalibrating ? "Finish" : (store.rigidReady ? "Recalibrate" : "Calibrate")) {
+                                if store.rigidCalibrating { store.finishRigidCalibration() }
+                                else { store.startRigidCalibration() }
+                            }
+                            .disabled(store.recording)
+                        }
+                        if store.rigidCalibrating {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(.white.opacity(0.14))
+                                    Capsule().fill(coral).frame(width: geo.size.width * CGFloat(store.rigidFaceCount) / 5.0)
+                                }
+                            }
+                            .frame(height: 4)
+                            Text(store.rigidConnectedCount < store.rigidFaceCount ? "Show neighboring faces together to connect them" : "Rotate to show all five faces")
+                                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(11)
+                    .background(glassRounded(12))
+                    .padding(.horizontal, 16).padding(.bottom, 10)
+                }
+
                 HStack(spacing: 7) {
                     Button { store.cycleTrackingMode() } label: {
                         HStack(spacing: 5) {
@@ -151,25 +187,6 @@ struct ContentView: View {
                 .background(glassRounded())
                 .padding(.horizontal, 16).padding(.bottom, 12)
 
-                if store.trackingMode == .rigid {
-                    HStack(spacing: 8) {
-                        Button { showRigidSettings = true } label: {
-                            Label("Cube Settings", systemImage: "cube.transparent")
-                        }
-                        Spacer()
-                        Text(store.rigidReady ? "CALIBRATED" : (store.rigidCalibrating ? "SCANNING" : "NOT CALIBRATED"))
-                            .foregroundStyle(store.rigidReady ? .green : brightCoral)
-                        Button(store.rigidCalibrating ? "Finish" : "Calibrate") {
-                            if store.rigidCalibrating { store.finishRigidCalibration() }
-                            else { store.startRigidCalibration() }
-                        }
-                        .disabled(store.recording)
-                    }
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(11)
-                    .background(glassRounded(12))
-                    .padding(.horizontal, 16).padding(.bottom, 10)
-                }
 
                 HStack(spacing: 10) {
                     Button {
@@ -199,8 +216,8 @@ struct ContentView: View {
             .foregroundStyle(.white)
         }
         .overlay(alignment: .top) {
-            LinearGradient(colors: [.black.opacity(0.28), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 65).ignoresSafeArea(edges: .top).allowsHitTesting(false)
+            LinearGradient(colors: [.black.opacity(0.53), .black.opacity(0.20), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 110).ignoresSafeArea(edges: .top).allowsHitTesting(false)
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true

@@ -33,7 +33,19 @@ final class RigidTracking {
     var cubeEdge: Float = 0.09
     var tagSize: Float = 0.075
     var observedIDs: [Int] { seen.sorted() }
-    var ready: Bool { !calibrating && model.count >= 2 }
+    var ready: Bool { !calibrating && model.count >= 5 }
+    var connectedCount: Int {
+        guard let root = seen.sorted().first else { return 0 }
+        var visited: Set<Int> = [root]
+        var pending = [root]
+        while let current = pending.popLast() {
+            for (other, edge) in edges[current] ?? [:] where edge.count >= 3 && !visited.contains(other) {
+                visited.insert(other); pending.append(other)
+            }
+        }
+        return visited.count
+    }
+    var canFinish: Bool { calibrating && seen.count >= 5 && connectedCount >= seen.count }
     init() { load() }
     private struct Saved: Codable { var tagSize: Float; var edge: Float; var transforms: [Int: [Float]] }
     private func save() {

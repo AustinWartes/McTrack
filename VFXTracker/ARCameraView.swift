@@ -195,12 +195,18 @@ struct ARCameraView: UIViewRepresentable {
         private func showMarkers(_ markers: [LiveMarker]) {
             guard let view = view else { return }
             let now = ProcessInfo.processInfo.systemUptime
+            if store.trackingMode == .rigid && !store.rigidCalibrating {
+                markerNodes.values.forEach { $0.removeFromParentNode() }
+                markerNodes.removeAll(); lastMarkerSeen.removeAll()
+                return
+            }
             // Keep the last measured pose visible during brief missed scans.
             // Never fabricate marker samples or interpolate raw recorded data.
             let visibleIDs = Set(markers.map(\.id))
             for (id, node) in markerNodes where !visibleIDs.contains(id) {
                 let age = now - (lastMarkerSeen[id] ?? 0)
-                // Retain the last measured pose until mode reset; never invent measurements.
+                // Rigid calibration shows only currently observed tags.
+                if store.trackingMode == .rigid { node.removeFromParentNode(); markerNodes.removeValue(forKey: id); lastMarkerSeen.removeValue(forKey: id); continue }
                 node.isHidden = false
                 node.opacity = age > 0.20 ? 0.48 : 1.0
             }
@@ -245,14 +251,32 @@ struct ARCameraView: UIViewRepresentable {
         private func showRigidPose(_ pose: simd_float4x4?) {
             guard let pose else { return }
             rigidGizmo.simdTransform = pose
+            rigidGizmo.simdScale = SIMD3<Float>(repeating: Float(store.rigidCubeMillimeters / 1000))
             rigidGizmo.isHidden = false
         }
         private func makeRigidGizmo() {
-            let colors: [(SIMD3<Float>, UIColor)] = [
-                (SIMD3<Float>(1,0,0), UIColor(red:1,green:0.60,blue:0.59,alpha:1)),
-                (SIMD3<Float>(0,1,0), UIColor(red:0.58,green:1,blue:0.65,alpha:1)),
-                (SIMD3<Float>(0,0,1), UIColor(red:0.60,green:0.77,blue:1,alpha:1))]
-            for (axis, color) in colors { segment(.zero, axis * 0.13, radius: 0.0025, color: color, parent: rigidGizmo) }
+            // A solid invisible cube writes depth; only the visible edges survive depth testing.
+            // All coordinates are cube-local, and can be rescaled with the calibrated edge.
+            let cube = SCNBox(width: 1, height: 1, length: 1, chamferRadius: 0)
+            let occluder = SCNMaterial()
+            occluder.colorBufferWriteMask = []
+            occluder.writesToDepthBuffer = true
+            occluder.readsFromDepthBuffer = true
+            occluder.lightingModel = .constant
+            cube.materials = Array(repeating: occluder, count: 6)
+            let solid = SCNNode(geometry: cube)
+            solid.renderingOrder = -1
+            rigidGizmo.addChildNode(solid)
+            let h: Float = 0.5
+            let color = UIColor(red: 1, green: 0.55, blue: 0.52, alpha: 1)
+            let vertices: [SIMD3<Float>] = [SIMD3(-h,-h,-h), SIMD3(h,-h,-h), SIMD3(h,h,-h), SIMD3(-h,h,-h), SIMD3(-h,-h,h), SIMD3(h,-h,h), SIMD3(h,h,h), SIMD3(-h,h,h)]
+            let pairs = [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)]
+            for (i,j) in pairs {
+                segment(vertices[i], vertices[j], radius: 0.012, color: color, parent: rigidGizmo)
+            }
+            segment(SIMD3(0,-0.65,0), SIMD3(0,0.65,0), radius: 0.015,
+                    color: UIColor(red: 0.65, green: 1, blue: 0.75, alpha: 1), parent: rigidGizmo)
+            rigidGizmo.simdScale = SIMD3<Float>(repeating: Float(store.rigidCubeMillimeters / 1000))
         }
         private func material(_ color: UIColor) -> SCNMaterial {
             let m = SCNMaterial()
@@ -309,7 +333,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 1.0 - smoothstep(0.12, 1.65, distanceMeters);
+                float fade = 1.0 - smoothstep(0.06, 0.825, distanceMeters);
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]

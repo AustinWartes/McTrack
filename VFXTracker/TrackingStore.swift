@@ -61,6 +61,8 @@ final class TrackingStore: ObservableObject {
     @Published private(set) var rigidCalibrating = false
     @Published private(set) var rigidReady = false
     @Published private(set) var rigidDetectedIDs = "None"
+    @Published private(set) var rigidFaceCount = 0
+    @Published private(set) var rigidConnectedCount = 0
     @Published var rigidTagMillimeters: Double = 75
     @Published var rigidCubeMillimeters: Double = 90
     private let rigidTracking = RigidTracking()
@@ -77,7 +79,7 @@ final class TrackingStore: ObservableObject {
             self.rigidTracking.start()
             DispatchQueue.main.async {
                 self.rigidCalibrating = true; self.rigidReady = false
-                self.rigidDetectedIDs = "None"; self.message = "Rotate cube; show adjacent faces together"
+                self.rigidDetectedIDs = "None"; self.rigidFaceCount = 0; self.rigidConnectedCount = 0; self.message = "Rotate cube; show adjacent faces together"
             }
         }
     }
@@ -281,7 +283,25 @@ final class TrackingStore: ObservableObject {
                     self.rigidTracking.updateCalibration(live)
                     if self.rigidTracking.calibrating {
                         let ids = self.rigidTracking.observedIDs.map(String.init).joined(separator: ", ")
-                        DispatchQueue.main.async { self.rigidDetectedIDs = ids.isEmpty ? "None" : ids }
+                        let faceCount = self.rigidTracking.observedIDs.count
+                        let connected = self.rigidTracking.connectedCount
+                        DispatchQueue.main.async {
+                            self.rigidDetectedIDs = ids.isEmpty ? "None" : ids
+                            self.rigidFaceCount = faceCount
+                            self.rigidConnectedCount = connected
+                            if faceCount >= 5 && connected < faceCount {
+                                self.message = "Show adjacent faces together to connect calibration"
+                            }
+                        }
+                        if self.rigidTracking.canFinish {
+                            let success = self.rigidTracking.finish()
+                            if success {
+                                DispatchQueue.main.async {
+                                    self.rigidReady = true; self.rigidCalibrating = false
+                                    self.message = "Cube calibrated automatically (5 faces)"
+                                }
+                            }
+                        }
                     }
                     if let estimate = self.rigidTracking.estimate(live) {
                         self.lastRigidPreview = estimate.0
