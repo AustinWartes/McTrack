@@ -204,20 +204,20 @@ struct ARCameraView: UIViewRepresentable {
                 else {
                     node = SCNNode()
                     // Short RGB axes, centered at the tag, oriented in tag local coordinates.
-                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0.065,0,0), radius: 0.0015, color: .red, parent: node)
-                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0.065,0), radius: 0.0015, color: .green, parent: node)
-                    segment(SIMD3<Float>(0,0,0), SIMD3<Float>(0,0,0.065), radius: 0.0015, color: .blue, parent: node)
-                    // Emissive corner brackets around the physical 88.9mm tag boundary.
-                    let half: Float = 0.04445
-                    let arm: Float = 0.014
-                    let bracketColor = UIColor(red: 1, green: 0.16, blue: 0.24, alpha: 1)
-                    for sx: Float in [-1, 1] {
-                        for sy: Float in [-1, 1] {
-                            let x = sx * half, y = sy * half
-                            segment(SIMD3<Float>(x, y, 0.001), SIMD3<Float>(x-sx*arm, y, 0.001), radius: 0.0013, color: bracketColor, parent: node)
-                            segment(SIMD3<Float>(x, y, 0.001), SIMD3<Float>(x, y-sy*arm, 0.001), radius: 0.0013, color: bracketColor, parent: node)
-                        }
-                    }
+                    // Pastel axes are intentionally unglowed: distinct from the luminous origin gizmo.
+                    let tagRed = UIColor(red: 1.0, green: 0.55, blue: 0.53, alpha: 1)
+                    let tagGreen = UIColor(red: 0.52, green: 1.0, blue: 0.57, alpha: 1)
+                    let tagBlue = UIColor(red: 0.53, green: 0.71, blue: 1.0, alpha: 1)
+                    segment(.zero, SIMD3<Float>(0.065,0,0), radius: 0.0015, color: tagRed, parent: node)
+                    segment(.zero, SIMD3<Float>(0,0.065,0), radius: 0.0015, color: tagGreen, parent: node)
+                    segment(.zero, SIMD3<Float>(0,0,0.065), radius: 0.0015, color: tagBlue, parent: node)
+                    // Flat transparent artwork instead of 3D cylinders for tag corners.
+                    let corners = SCNPlane(width: 0.112, height: 0.112)
+                    let cornerMaterial = overlayMaterial(named: "CoralTagCorners")
+                    corners.materials = [cornerMaterial]
+                    let cornerNode = SCNNode(geometry: corners)
+                    cornerNode.position.z = 0.001
+                    node.addChildNode(cornerNode)
                     let label = SCNText(string: "TAG \(marker.id)", extrusionDepth: 0)
                     label.font = UIFont.monospacedSystemFont(ofSize: 8, weight: .bold)
                     label.firstMaterial = material(.white)
@@ -260,39 +260,23 @@ struct ARCameraView: UIViewRepresentable {
 
         }
 
-        // All placement graphics are flat, unlit, and double-sided.
-        // The ring is an opaque texture, so no overlapping torus/shadow geometry is needed.
-        private func makeReticle() {
-            let size: CGFloat = 512
-            let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-            let image = renderer.image { context in
-                let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.24, blue: 0.34, alpha: 1)
-                let ivory = UIColor(red: 1, green: 0.72, blue: 0.73, alpha: 1)
-                for i in stride(from: 70, through: 18, by: -4) {
-                    cg.setStrokeColor(coral.withAlphaComponent(0.025 + CGFloat(70-i) / 3500).cgColor)
-                    cg.setLineWidth(CGFloat(i))
-                    cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
-                }
-                cg.setStrokeColor(coral.cgColor)
-                cg.setLineWidth(17)
-                cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
-                cg.setStrokeColor(UIColor(red: 1, green: 0.66, blue: 0.69, alpha: 0.96).cgColor)
-                cg.setLineWidth(6)
-                cg.strokeEllipse(in: CGRect(x: 45, y: 45, width: 422, height: 422))
-                cg.setStrokeColor(coral.cgColor)
-                cg.setLineWidth(12)
-                cg.strokeEllipse(in: CGRect(x: 215, y: 215, width: 82, height: 82))
-                cg.setFillColor(ivory.cgColor)
-                cg.fillEllipse(in: CGRect(x: 237, y: 237, width: 38, height: 38))
-            }
-            let plane = SCNPlane(width: 0.24, height: 0.24)
-            let m = material(.white)
-            m.diffuse.contents = image
+        // Explicitly colored PNGs avoid UIKit/SceneKit runtime gradient differences.
+        // Constant lighting, no additive blending, and no emissive white contribution.
+        private func overlayMaterial(named name: String) -> SCNMaterial {
+            let m = SCNMaterial()
+            m.diffuse.contents = UIImage(named: name)
+            m.lightingModel = .constant
+            m.isDoubleSided = true
             m.transparencyMode = .aOne
+            m.blendMode = .alpha
             m.writesToDepthBuffer = false
             m.readsFromDepthBuffer = false
-            plane.materials = [m]
+            return m
+        }
+
+        private func makeReticle() {
+            let plane = SCNPlane(width: 0.24, height: 0.24)
+            plane.materials = [overlayMaterial(named: "CoralTarget")]
             let node = SCNNode(geometry: plane)
             node.eulerAngles.x = -.pi / 2
             node.position.y = 0.008
@@ -300,58 +284,14 @@ struct ARCameraView: UIViewRepresentable {
         }
 
         private func makeGroundGrid() {
-            let size: CGFloat = 2048
-            let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-            let image = renderer.image { context in
-                let cg = context.cgContext
-                let coral = UIColor(red: 1, green: 0.24, blue: 0.34, alpha: 1)
-                let count = 100
-                let step = size / CGFloat(count)
-                // Very faint connecting lines. The alpha-reveal shader fades the entire pattern.
-                cg.setStrokeColor(coral.withAlphaComponent(0.13).cgColor)
-                cg.setLineWidth(0.65)
-                for n in 0...count {
-                    let v = CGFloat(n) * step
-                    cg.move(to: CGPoint(x: v, y: 0)); cg.addLine(to: CGPoint(x: v, y: size))
-                    cg.move(to: CGPoint(x: 0, y: v)); cg.addLine(to: CGPoint(x: size, y: v))
-                }
-                cg.strokePath()
-                for x in 0...count {
-                    for y in 0...count {
-                        let px = CGFloat(x) * step
-                        let py = CGFloat(y) * step
-                        // Deliberately exaggerated coral bloom: broad translucent halo,
-                        // saturated inner glow, and a small white-hot center.
-                        // Continuous radial gradient rather than visibly nested flat circles.
-                        let colors = [
-                            UIColor(red: 1, green: 0.68, blue: 0.70, alpha: 0.98).cgColor,
-                            UIColor(red: 1, green: 0.36, blue: 0.45, alpha: 0.94).cgColor,
-                            coral.withAlphaComponent(0.72).cgColor,
-                            coral.withAlphaComponent(0.20).cgColor,
-                            coral.withAlphaComponent(0).cgColor
-                        ] as CFArray
-                        let positions: [CGFloat] = [0, 0.16, 0.37, 0.68, 1]
-                        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: positions) {
-                            cg.drawRadialGradient(gradient, startCenter: CGPoint(x:px,y:py), startRadius:0,
-                                                  endCenter:CGPoint(x:px,y:py), endRadius:3.25, options:[])
-                        }
-                    }
-                }
-            }
             let plane = SCNPlane(width: 5, height: 5)
-            let m = material(.white)
-            m.diffuse.contents = image
-            m.transparencyMode = .aOne
-            // Additive compositing was washing the red channel to white over bright
-            // camera footage. Alpha blending retains the saturated coral hue.
-            m.blendMode = .alpha
-            m.writesToDepthBuffer = false
-            m.readsFromDepthBuffer = false
+            let m = overlayMaterial(named: "CoralGrid")
+            // Reveal near the placement target. This changes alpha only, never RGB.
             m.setValue(SCNVector3(0.5, 0.5, 0), forKey: "revealUV")
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 0.95 * (1.0 - smoothstep(0.03, 0.57, distanceMeters));
+                float fade = 0.94 * (1.0 - smoothstep(0.04, 0.68, distanceMeters));
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]
@@ -363,13 +303,16 @@ struct ARCameraView: UIViewRepresentable {
         }
 
         private func makeGizmo() {
+            // Restore the distinct glowing origin axes; tag axes remain plain pastel.
             let axes: [(SIMD3<Float>, UIColor)] = [
-                (SIMD3<Float>(1,0,0), .systemRed),
-                (SIMD3<Float>(0,1,0), .systemGreen),
-                (SIMD3<Float>(0,0,1), .systemBlue)
+                (SIMD3<Float>(1,0,0), UIColor(red: 1, green: 0.58, blue: 0.56, alpha: 1)),
+                (SIMD3<Float>(0,1,0), UIColor(red: 0.54, green: 1, blue: 0.58, alpha: 1)),
+                (SIMD3<Float>(0,0,1), UIColor(red: 0.55, green: 0.74, blue: 1, alpha: 1))
             ]
             for (direction, color) in axes {
                 segment(.zero, direction * 0.28, radius: 0.0035, color: color, parent: gizmo)
+                // Transparent wider sleeves form a gentle luminous halo.
+                segment(.zero, direction * 0.28, radius: 0.008, color: color.withAlphaComponent(0.13), parent: gizmo)
                 for index in 0..<6 {
                     let start = Float(index) * 0.046 + 0.008
                     let end = start + 0.024
@@ -377,7 +320,7 @@ struct ARCameraView: UIViewRepresentable {
                 }
             }
             let center = SCNSphere(radius: 0.006)
-            center.materials = [material(.white)]
+            center.materials = [material(UIColor(red: 1, green: 0.87, blue: 0.81, alpha: 1))]
             gizmo.addChildNode(SCNNode(geometry: center))
         }
     }

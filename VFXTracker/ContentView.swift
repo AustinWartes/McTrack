@@ -9,13 +9,13 @@ struct ContentView: View {
     @State private var showCameraSettings = false
     private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
     private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
-    private let glass = Color.black.opacity(0.25)
+    private let glass = Color.black.opacity(0.08)
 
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
             .fill(.ultraThinMaterial)
-            .overlay(Capsule().fill(Color.white.opacity(0.075)))
+            .overlay(Capsule().fill(Color.white.opacity(0.025)))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
             .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
@@ -23,22 +23,22 @@ struct ContentView: View {
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(.ultraThinMaterial)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.075)))
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.025)))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
     private var framedWordmark: some View {
-        (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(coral))
+        (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(Color(red: 1, green: 0.61, blue: 0.57)))
             .font(.system(size: 23, weight: .bold, design: .rounded))
             .italic()
-            .shadow(color: coral.opacity(0.58), radius: 3)
+            .shadow(color: .white.opacity(0.14), radius: 1.4)
             .overlay(alignment: .trailing) {
                 // A fine, luminous Track outline; overlay aligns to the trailing word.
                 Text("Track")
                     .font(.system(size: 23, weight: .bold, design: .rounded))
                     .italic()
-                    .foregroundStyle(brightCoral.opacity(0.22))
-                    .shadow(color: brightCoral.opacity(0.70), radius: 1.2)
+                    .foregroundStyle(Color(red: 1, green: 0.83, blue: 0.75).opacity(0.15))
+                    .shadow(color: coral.opacity(0.60), radius: 1.6)
                     .allowsHitTesting(false)
             }
             .padding(.horizontal, 15)
@@ -127,19 +127,20 @@ struct ContentView: View {
                         }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .background(glassCapsule(active: true))
+                            .background(Capsule().strokeBorder(LinearGradient(colors: [coral, brightCoral, coral], startPoint: .leading, endPoint: .trailing), lineWidth: 1.3)
+                                .shadow(color: coral.opacity(0.55), radius: 5))
                     }
                     .disabled(store.recording)
                     .accessibilityLabel("Cycle tracking mode")
                     Button { store.cycleResolution() } label: {
                         Text(store.resolution == 2160 ? "4K" : "1080p")
                             .frame(maxWidth: .infinity).padding(.vertical, 8)
-                            .background(glassCapsule())
+                            .background(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
                     }
                     .disabled(store.recording || !store.supports4K)
                     Button { store.cycleFPS() } label: {
                         Text("\(store.fps) FPS").frame(maxWidth: .infinity)
-                            .padding(.vertical, 8).background(glassCapsule())
+                            .padding(.vertical, 8).background(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
                     }
                     .disabled(store.recording)
                 }
