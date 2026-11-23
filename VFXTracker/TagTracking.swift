@@ -26,7 +26,7 @@ struct LiveMarker {
 final class TagTracking {
     private let detector: UnsafeMutableRawPointer?
     private var lastScan: TimeInterval = -1
-    let tagSize: Double = 0.0889  // Printed AprilTag detection boundary, not paper width.
+    var tagSize: Double = 0.0889  // Printed AprilTag detection boundary, not paper width.
     init() { detector = mc_tag_create() }
     deinit { if let detector { mc_tag_destroy(detector) } }
 

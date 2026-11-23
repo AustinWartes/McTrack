@@ -55,7 +55,50 @@ final class TrackingStore: ObservableObject {
             // Clear previous mode's preview immediately, including when there are no detections.
             DispatchQueue.main.async { [weak self] in self?.onClearMarkers?() }
         }
-        if next == .rigid { message = "Rigid-object tracking coming soon" }
+        if next == .rigid { message = rigidReady ? "Rigid cube ready" : "Calibrate cube to begin" }
+    }
+
+    @Published private(set) var rigidCalibrating = false
+    @Published private(set) var rigidReady = false
+    @Published private(set) var rigidDetectedIDs = "None"
+    @Published var rigidTagMillimeters: Double = 75
+    @Published var rigidCubeMillimeters: Double = 90
+    private let rigidTracking = RigidTracking()
+    private var rigidSamples: [RigidSample] = []
+    private var lastRigidPreview: simd_float4x4?
+    var onRigidPose: ((simd_float4x4?) -> Void)?
+
+    func startRigidCalibration() {
+        guard !recording else { return }
+        queue.async {
+            self.tagTracking.tagSize = self.rigidTagMillimeters / 1000
+            self.rigidTracking.tagSize = Float(self.rigidTagMillimeters / 1000)
+            self.rigidTracking.cubeEdge = Float(self.rigidCubeMillimeters / 1000)
+            self.rigidTracking.start()
+            DispatchQueue.main.async {
+                self.rigidCalibrating = true; self.rigidReady = false
+                self.rigidDetectedIDs = "None"; self.message = "Rotate cube; show adjacent faces together"
+            }
+        }
+    }
+    func finishRigidCalibration() {
+        queue.async {
+            let success = self.rigidTracking.finish()
+            let ids = self.rigidTracking.observedIDs.map(String.init).joined(separator: ", ")
+            DispatchQueue.main.async {
+                self.rigidReady = success
+                self.rigidCalibrating = !success
+                self.rigidDetectedIDs = ids
+                self.message = success ? "Cube calibrated (\(self.rigidTracking.model.count) faces)" : "Need all five connected faces; keep rotating"
+            }
+        }
+    }
+    func updateRigidDimensions() {
+        guard !recording else { return }
+        queue.async {
+            self.tagTracking.tagSize = self.trackingMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889
+            self.rigidTracking.cubeEdge = Float(self.rigidCubeMillimeters / 1000)
+        }
     }
 
     @Published var recording = false
@@ -109,7 +152,15 @@ final class TrackingStore: ObservableObject {
         return folder
     }()
 
-    init() { refreshTakes() }
+    init() {
+        rigidReady = rigidTracking.ready
+        if rigidReady {
+            rigidTagMillimeters = Double(rigidTracking.tagSize) * 1000
+            rigidCubeMillimeters = Double(rigidTracking.cubeEdge) * 1000
+            rigidDetectedIDs = rigidTracking.model.keys.sorted().map(String.init).joined(separator: ", ")
+        }
+        refreshTakes()
+    }
 
     func refreshTakes() {
         let urls = (try? FileManager.default.contentsOfDirectory(at: takesFolder, includingPropertiesForKeys: nil)) ?? []
@@ -151,6 +202,7 @@ final class TrackingStore: ObservableObject {
                 self.activeFolder = folder
                 self.samples.removeAll(keepingCapacity: true)
                 self.markerObservations.removeAll(keepingCapacity: true)
+                self.rigidSamples.removeAll(keepingCapacity: true)
                 self.startTimestamp = nil
                 self.lastTimestamp = -1
                 DispatchQueue.main.async { self.recording = true; self.message = "Recording" }
@@ -167,6 +219,8 @@ final class TrackingStore: ObservableObject {
             self.activeFolder = nil
             let samples = self.samples
             let markerSamples = self.markerObservations
+            let rigidSamples = self.rigidSamples
+            let rigidModel = self.rigidTracking
             let recordedMode = self.activeTrackingMode
             let origin = self.origin
             let takeNumber = self.activeTakeNumber
@@ -176,8 +230,14 @@ final class TrackingStore: ObservableObject {
                     let track = TrackFile(format: "McTrack_v2", coordinateSystem: "Origin-local ARKit right-handed coordinates, meters; +Y up. Camera-to-origin transforms.", matrixLayout: "column-major", originToARWorld: flatten(origin), samples: samples)
                     let data = try JSONEncoder.pretty.encode(track)
                     try data.write(to: folder.appendingPathComponent("tracking.json"), options: .atomic)
-                    let markerFile = MarkerFile(format: "McTrack_Markers_v1", family: "tagStandard41h12", tagSizeMeters: 0.0889, coordinateSystem: "origin-local ARKit right-handed meters, +Y up, column-major", observations: markerSamples)
+                    let markerFile = MarkerFile(format: "McTrack_Markers_v1", family: "tagStandard41h12", tagSizeMeters: recordedMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889, coordinateSystem: "origin-local ARKit right-handed meters, +Y up, column-major", observations: markerSamples)
                     try JSONEncoder.pretty.encode(markerFile).write(to: folder.appendingPathComponent("markers.json"), options: .atomic)
+                    if recordedMode == .rigid {
+                        let rigid = RigidFile(format: "McTrack_Rigid_v1", tagSizeMeters: self.rigidTagMillimeters / 1000,
+                            cubeEdgeMeters: Double(rigidModel.calibratedEdge), tagIDs: rigidModel.model.keys.sorted(),
+                            samples: rigidSamples, calibrationStatus: rigidModel.ready ? "calibrated" : "incomplete")
+                        try JSONEncoder.pretty.encode(rigid).write(to: folder.appendingPathComponent("rigid.json"), options: .atomic)
+                    }
                     let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
@@ -212,10 +272,27 @@ final class TrackingStore: ObservableObject {
                 DispatchQueue.main.async { self.status = state }
             }
             // Detection runs even when not recording, allowing live marker previews.
-            if self.activeTrackingMode == .tags {
+            if self.activeTrackingMode == .tags || self.activeTrackingMode == .rigid {
+                self.tagTracking.tagSize = self.activeTrackingMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889
                 let elapsed = self.writer != nil ? self.startTimestamp.map { frame.timestamp - $0 } : nil
                 if let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed) {
                 if self.writer != nil { self.markerObservations.append(contentsOf: observations) }
+                if self.activeTrackingMode == .rigid {
+                    self.rigidTracking.updateCalibration(live)
+                    if self.rigidTracking.calibrating {
+                        let ids = self.rigidTracking.observedIDs.map(String.init).joined(separator: ", ")
+                        DispatchQueue.main.async { self.rigidDetectedIDs = ids.isEmpty ? "None" : ids }
+                    }
+                    if let estimate = self.rigidTracking.estimate(live) {
+                        self.lastRigidPreview = estimate.0
+                        if self.writer != nil, let elapsed {
+                            self.rigidSamples.append(RigidSample(elapsedSeconds: elapsed,
+                                arTimestamp: frame.timestamp, rigidToOrigin: flatten(simd_inverse(self.origin) * estimate.0),
+                                visibleTagIDs: estimate.1))
+                        }
+                        DispatchQueue.main.async { [weak self] in self?.onRigidPose?(estimate.0) }
+                    }
+                }
                 // Empty scans also update the UI, so stale gizmos can be hidden.
                 DispatchQueue.main.async { [weak self] in self?.onMarkers?(live) }
                 }

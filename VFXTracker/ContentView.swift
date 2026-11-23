@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var store = TrackingStore()
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
+    @State private var showRigidSettings = false
     private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
     private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
     private let glass = Color.black.opacity(0.08)
@@ -28,37 +29,37 @@ struct ContentView: View {
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
     private var framedWordmark: some View {
-        (Text("Mc").foregroundColor(.white) + Text("Track").foregroundColor(Color(red: 1, green: 0.61, blue: 0.57)))
-            .font(.system(size: 23, weight: .bold, design: .rounded))
-            .italic()
-            .shadow(color: .white.opacity(0.14), radius: 1.4)
-            .overlay(alignment: .trailing) {
-                // A fine, luminous Track outline; overlay aligns to the trailing word.
-                Text("Track")
-                    .font(.system(size: 23, weight: .bold, design: .rounded))
-                    .italic()
-                    .foregroundStyle(Color(red: 1, green: 0.83, blue: 0.75).opacity(0.15))
-                    .shadow(color: coral.opacity(0.60), radius: 1.6)
-                    .allowsHitTesting(false)
-            }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 5)
-            .overlay {
-                GeometryReader { geo in
-                    let w = geo.size.width, h = geo.size.height
-                    Path { path in
-                        let arm: CGFloat = 10
-                        path.move(to: CGPoint(x: arm, y: 0)); path.addLine(to: .zero); path.addLine(to: CGPoint(x: 0, y: arm))
-                        path.move(to: CGPoint(x: w-arm, y: 0)); path.addLine(to: CGPoint(x: w, y: 0)); path.addLine(to: CGPoint(x: w, y: arm))
-                        path.move(to: CGPoint(x: 0, y: h-arm)); path.addLine(to: CGPoint(x: 0, y: h)); path.addLine(to: CGPoint(x: arm, y: h))
-                        path.move(to: CGPoint(x: w-arm, y: h)); path.addLine(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: w, y: h-arm))
-                    }
-                    .stroke(LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing), style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
-                    .shadow(color: coral, radius: 5)
-                    .shadow(color: coral.opacity(0.85), radius: 12)
+        HStack(spacing: 0) {
+            Text("Mc")
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.75), radius: 3)
+                .shadow(color: .white.opacity(0.25), radius: 8)
+            Text("Track")
+                .foregroundStyle(coral)
+                // The lighter salmon is a very thin edge highlight around the red fill.
+                .shadow(color: brightCoral.opacity(0.95), radius: 0.65)
+                .shadow(color: coral.opacity(0.90), radius: 5)
+                .shadow(color: coral.opacity(0.55), radius: 12)
+        }
+        .font(.system(size: 23, weight: .bold, design: .rounded))
+        .italic()
+        .padding(.horizontal, 15)
+        .padding(.vertical, 5)
+        .overlay {
+            GeometryReader { geo in
+                let w = geo.size.width, h = geo.size.height
+                Path { path in
+                    let arm: CGFloat = 10
+                    path.move(to: CGPoint(x: arm, y: 0)); path.addLine(to: .zero); path.addLine(to: CGPoint(x: 0, y: arm))
+                    path.move(to: CGPoint(x: w-arm, y: 0)); path.addLine(to: CGPoint(x: w, y: 0)); path.addLine(to: CGPoint(x: w, y: arm))
+                    path.move(to: CGPoint(x: 0, y: h-arm)); path.addLine(to: CGPoint(x: 0, y: h)); path.addLine(to: CGPoint(x: arm, y: h))
+                    path.move(to: CGPoint(x: w-arm, y: h)); path.addLine(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: w, y: h-arm))
                 }
+                .stroke(coral, style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
+                .shadow(color: coral, radius: 5)
+                .shadow(color: coral.opacity(0.85), radius: 12)
             }
-            .shadow(color: coral.opacity(0.28), radius: 5)
+        }
     }
 
     var body: some View {
@@ -150,6 +151,26 @@ struct ContentView: View {
                 .background(glassRounded())
                 .padding(.horizontal, 16).padding(.bottom, 12)
 
+                if store.trackingMode == .rigid {
+                    HStack(spacing: 8) {
+                        Button { showRigidSettings = true } label: {
+                            Label("Cube Settings", systemImage: "cube.transparent")
+                        }
+                        Spacer()
+                        Text(store.rigidReady ? "CALIBRATED" : (store.rigidCalibrating ? "SCANNING" : "NOT CALIBRATED"))
+                            .foregroundStyle(store.rigidReady ? .green : brightCoral)
+                        Button(store.rigidCalibrating ? "Finish" : "Calibrate") {
+                            if store.rigidCalibrating { store.finishRigidCalibration() }
+                            else { store.startRigidCalibration() }
+                        }
+                        .disabled(store.recording)
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(11)
+                    .background(glassRounded(12))
+                    .padding(.horizontal, 16).padding(.bottom, 10)
+                }
+
                 HStack(spacing: 10) {
                     Button {
                         if store.recording { store.end() } else { store.begin() }
@@ -186,6 +207,46 @@ struct ContentView: View {
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .sheet(isPresented: $showRigidSettings) {
+            NavigationStack {
+                Form {
+                    Section("Cube dimensions") {
+                        HStack {
+                            Text("AprilTag size (mm)")
+                            Spacer()
+                            TextField("75", value: $store.rigidTagMillimeters, format: .number)
+                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                                .frame(width: 95)
+                        }
+                        HStack {
+                            Text("Cube edge (mm)")
+                            Spacer()
+                            TextField("90", value: $store.rigidCubeMillimeters, format: .number)
+                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                                .frame(width: 95)
+                        }
+                        Text("Measure the detection boundary of the black-and-white tag, not the surrounding paper. Cube edge is the outside face-to-face dimension.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Section("Calibration") {
+                        Text("Detected IDs: \(store.rigidDetectedIDs)")
+                        Text("Show adjacent faces together while slowly rotating the cube. Keep the cube in the camera view; move the camera if needed.")
+                            .font(.footnote)
+                        Button("Recalibrate") { store.startRigidCalibration() }
+                            .disabled(store.recording)
+                    }
+                }
+                .navigationTitle("Rigid Cube")
+                .toolbar { ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        store.rigidTagMillimeters = max(10, min(300, store.rigidTagMillimeters))
+                        store.rigidCubeMillimeters = max(20, min(500, store.rigidCubeMillimeters))
+                        store.updateRigidDimensions()
+                        showRigidSettings = false
+                    }
+                }}
+            }
+        }
         .sheet(isPresented: $store.showTakes) {
             NavigationStack {
                 List {

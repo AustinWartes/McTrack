@@ -43,6 +43,7 @@ struct ARCameraView: UIViewRepresentable {
         private let reticle = SCNNode()
         private let gizmo = SCNNode()
         private let groundGrid = SCNNode()
+        private let rigidGizmo = SCNNode()
         private var markerNodes: [Int: SCNNode] = [:]
         private var lastMarkerSeen: [Int: TimeInterval] = [:]
         private var gridMaterial: SCNMaterial?
@@ -93,9 +94,13 @@ struct ARCameraView: UIViewRepresentable {
             makeGroundGrid()
             store.onMarkers = { [weak self] markers in self?.showMarkers(markers) }
             store.onClearMarkers = { [weak self] in self?.clearMarkerPreview() }
+            store.onRigidPose = { [weak self] pose in self?.showRigidPose(pose) }
             view.scene.rootNode.addChildNode(reticle)
             view.scene.rootNode.addChildNode(gizmo)
             view.scene.rootNode.addChildNode(groundGrid)
+            view.scene.rootNode.addChildNode(rigidGizmo)
+            rigidGizmo.isHidden = true
+            makeRigidGizmo()
             reticle.isHidden = true
             gizmo.isHidden = true
             groundGrid.isHidden = true
@@ -174,6 +179,7 @@ struct ARCameraView: UIViewRepresentable {
             markerNodes.values.forEach { $0.removeFromParentNode() }
             markerNodes.removeAll()
             lastMarkerSeen.removeAll()
+            rigidGizmo.isHidden = true
         }
 
         func resetPlacement() {
@@ -236,6 +242,18 @@ struct ARCameraView: UIViewRepresentable {
 
         }
 
+        private func showRigidPose(_ pose: simd_float4x4?) {
+            guard let pose else { return }
+            rigidGizmo.simdTransform = pose
+            rigidGizmo.isHidden = false
+        }
+        private func makeRigidGizmo() {
+            let colors: [(SIMD3<Float>, UIColor)] = [
+                (SIMD3<Float>(1,0,0), UIColor(red:1,green:0.60,blue:0.59,alpha:1)),
+                (SIMD3<Float>(0,1,0), UIColor(red:0.58,green:1,blue:0.65,alpha:1)),
+                (SIMD3<Float>(0,0,1), UIColor(red:0.60,green:0.77,blue:1,alpha:1))]
+            for (axis, color) in colors { segment(.zero, axis * 0.13, radius: 0.0025, color: color, parent: rigidGizmo) }
+        }
         private func material(_ color: UIColor) -> SCNMaterial {
             let m = SCNMaterial()
             m.diffuse.contents = color
@@ -291,7 +309,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 0.94 * (1.0 - smoothstep(0.04, 0.68, distanceMeters));
+                float fade = 1.0 - smoothstep(0.12, 1.65, distanceMeters);
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]
@@ -312,7 +330,7 @@ struct ARCameraView: UIViewRepresentable {
             for (direction, color) in axes {
                 segment(.zero, direction * 0.28, radius: 0.0035, color: color, parent: gizmo)
                 // Transparent wider sleeves form a gentle luminous halo.
-                segment(.zero, direction * 0.28, radius: 0.008, color: color.withAlphaComponent(0.13), parent: gizmo)
+                segment(.zero, direction * 0.28, radius: 0.010, color: color.withAlphaComponent(0.22), parent: gizmo)
                 for index in 0..<6 {
                     let start = Float(index) * 0.046 + 0.008
                     let end = start + 0.024
