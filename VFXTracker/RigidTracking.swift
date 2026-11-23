@@ -20,7 +20,7 @@ struct RigidFile: Codable {
 // A graph of simultaneous face detections establishes relative tag transforms;
 // the cube may move during calibration because only SAME-FRAME relative poses are used.
 private func rotationOf(_ m: simd_float4x4) -> simd_quatf {
-    simd_quatf(simd_float3x3(columns: (m.columns.0.xyz, m.columns.1.xyz, m.columns.2.xyz)))
+    simd_quatf(simd_float3x3(columns: (SIMD3<Float>(m.columns.0.x, m.columns.0.y, m.columns.0.z), SIMD3<Float>(m.columns.1.x, m.columns.1.y, m.columns.1.z), SIMD3<Float>(m.columns.2.x, m.columns.2.y, m.columns.2.z))))
 }
 
 final class RigidTracking {
@@ -66,10 +66,10 @@ final class RigidTracking {
                 let relative = simd_inverse(a.transform) * b.transform
                 // Running translation and rotation average in quaternion space, with outlier rejection.
                 var edge = edges[a.id]?[b.id] ?? Edge(transform: relative, count: 0)
-                let distance = simd_length(relative.columns.3.xyz - edge.transform.columns.3.xyz)
+                let distance = simd_length(SIMD3<Float>(relative.columns.3.x, relative.columns.3.y, relative.columns.3.z) - SIMD3<Float>(edge.transform.columns.3.x, edge.transform.columns.3.y, edge.transform.columns.3.z))
                 if edge.count > 3 && distance > max(0.04, cubeEdge * 0.45) { continue }
                 let weight = 1.0 / Float(min(edge.count + 1, 60))
-                let t = simd_mix(edge.transform.columns.3.xyz, relative.columns.3.xyz, SIMD3<Float>(repeating: weight))
+                let t = simd_mix(SIMD3<Float>(edge.transform.columns.3.x, edge.transform.columns.3.y, edge.transform.columns.3.z), SIMD3<Float>(relative.columns.3.x, relative.columns.3.y, relative.columns.3.z), SIMD3<Float>(repeating: weight))
                 let qOld = rotationOf(edge.transform)
                 let qNew = rotationOf(relative)
                 let q = simd_slerp(qOld, qNew, weight)
@@ -99,7 +99,7 @@ final class RigidTracking {
         // root-tag coordinates; use the user-adjustable cube edge for scale.
         var centers = SIMD3<Float>(repeating: 0)
         for pose in rootFromTag.values {
-            centers += pose.columns.3.xyz - pose.columns.2.xyz * (cubeEdge * 0.5)
+            centers += SIMD3<Float>(pose.columns.3.x, pose.columns.3.y, pose.columns.3.z) - SIMD3<Float>(pose.columns.2.x, pose.columns.2.y, pose.columns.2.z) * (cubeEdge * 0.5)
         }
         centers /= Float(rootFromTag.count)
         var rootFromCube = matrix_identity_float4x4
@@ -119,14 +119,14 @@ final class RigidTracking {
         }
         guard let first = candidates.first else { return nil }
         // Weighted mean of independent face estimates. Reject gross disagreement.
-        let positions = candidates.map { $0.1.columns.3.xyz }
-        let firstPos = first.1.columns.3.xyz
-        let filtered = candidates.filter { simd_length($0.1.columns.3.xyz - firstPos) < max(0.08, cubeEdge) }
+        let positions = candidates.map { SIMD3<Float>($0.1.columns.3.x, $0.1.columns.3.y, $0.1.columns.3.z) }
+        let firstPos = SIMD3<Float>(first.1.columns.3.x, first.1.columns.3.y, first.1.columns.3.z)
+        let filtered = candidates.filter { simd_length(SIMD3<Float>($0.1.columns.3.x, $0.1.columns.3.y, $0.1.columns.3.z) - firstPos) < max(0.08, cubeEdge) }
         guard !filtered.isEmpty else { return nil }
         var translation = SIMD3<Float>(repeating: 0)
         var orientation = rotationOf(filtered[0].1)
         for (i, pair) in filtered.enumerated() {
-            translation += pair.1.columns.3.xyz
+            translation += SIMD3<Float>(pair.1.columns.3.x, pair.1.columns.3.y, pair.1.columns.3.z)
             if i > 0 { orientation = simd_slerp(orientation, rotationOf(pair.1), 1 / Float(i + 1)) }
         }
         translation /= Float(filtered.count)
