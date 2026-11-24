@@ -1,0 +1,1 @@
+UI-only patch. Restore unattenuated SwiftUI material using the same background API as Done; hide origin control during numeric focus. Add native Blender action selection feedback and bundled coral preview icons. Solver and setup script unchanged. Swift syntax and Python syntax checked; iPhone and Blender runtime not tested. Existing solver environment can be reused.

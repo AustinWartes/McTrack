@@ -21,7 +21,8 @@ struct ContentView: View {
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
-            .fill(.ultraThinMaterial).opacity(0.65).environment(\.colorScheme, .dark)
+            .fill(Color.clear)
+            .background(.ultraThinMaterial, in: Capsule()).environment(\.colorScheme, .dark)
             .overlay(Capsule().fill(glass))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
@@ -29,7 +30,8 @@ struct ContentView: View {
     }
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(.ultraThinMaterial).opacity(0.65).environment(\.colorScheme, .dark)
+            .fill(Color.clear)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius)).environment(\.colorScheme, .dark)
             .overlay(RoundedRectangle(cornerRadius: radius).fill(glass))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
@@ -162,6 +164,7 @@ struct ContentView: View {
 
                 Spacer()
                 if editingDimensions { HStack { Spacer(); Button { editingDimensions = false } label: { Label("Done", systemImage: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(brightCoral).shadow(color: .red, radius: 4).padding(.horizontal, 15).padding(.vertical, 9).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12)).environment(\.colorScheme, .dark).overlay(RoundedRectangle(cornerRadius: 12).fill(coral.opacity(0.10))).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(coral, lineWidth: 1).shadow(color: .red, radius: 5)) } }.padding(.horizontal, 18) }
+                if !editingDimensions {
                 HStack {
                     Spacer()
                     if store.hasOrigin {
@@ -178,6 +181,7 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, 18).padding(.bottom, 12)
+                }
 
                 if store.trackingMode == .rigid {
                     VStack(spacing: 6) {
