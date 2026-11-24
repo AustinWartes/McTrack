@@ -63,6 +63,8 @@ final class TrackingStore: ObservableObject {
     @Published private(set) var rigidDetectedIDs = "None"
     @Published private(set) var rigidFaceCount = 0
     @Published private(set) var rigidConnectedCount = 0
+    @Published var showRigidAxis = true
+    @Published var rigidAxisLength: Double = 1.0
     @Published var rigidTagMillimeters: Double = 75
     @Published var rigidCubeMillimeters: Double = 90
     private let rigidTracking = RigidTracking()
@@ -89,6 +91,7 @@ final class TrackingStore: ObservableObject {
             let ids = self.rigidTracking.observedIDs.map(String.init).joined(separator: ", ")
             DispatchQueue.main.async {
                 self.rigidReady = success
+                if success { self.rigidTagMillimeters = Double(self.rigidTracking.tagSize) * 1000 }
                 self.rigidCalibrating = !success
                 self.rigidDetectedIDs = ids
                 self.message = success ? "Cube calibrated (\(self.rigidTracking.model.count) faces)" : "Need all five connected faces; keep rotating"
@@ -97,9 +100,16 @@ final class TrackingStore: ObservableObject {
     }
     func updateRigidDimensions() {
         guard !recording else { return }
+        rigidTagMillimeters = max(10, min(300, rigidTagMillimeters))
+        rigidCubeMillimeters = max(20, min(500, rigidCubeMillimeters))
+        let tag = Float(rigidTagMillimeters / 1000), edge = Float(rigidCubeMillimeters / 1000)
         queue.async {
-            self.tagTracking.tagSize = self.trackingMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889
-            self.rigidTracking.cubeEdge = Float(self.rigidCubeMillimeters / 1000)
+            if abs(self.rigidTracking.tagSize - tag) > 0.00001 || abs(self.rigidTracking.cubeEdge - edge) > 0.00001 {
+                self.rigidTracking.invalidate()
+                self.rigidTracking.tagSize = tag
+                self.rigidTracking.cubeEdge = edge
+                DispatchQueue.main.async { self.rigidReady = false; self.rigidCalibrating = false; self.message = "Dimensions changed; recalibrate cube"; self.onRigidPose?(nil) }
+            }
         }
     }
 
@@ -275,7 +285,7 @@ final class TrackingStore: ObservableObject {
             }
             // Detection runs even when not recording, allowing live marker previews.
             if self.activeTrackingMode == .tags || self.activeTrackingMode == .rigid {
-                self.tagTracking.tagSize = self.activeTrackingMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889
+                self.tagTracking.tagSize = self.activeTrackingMode == .rigid ? Double(self.rigidTracking.tagSize) : 0.0889
                 let elapsed = self.writer != nil ? self.startTimestamp.map { frame.timestamp - $0 } : nil
                 if let (live, observations) = self.tagTracking.detect(frame: frame, origin: self.origin, elapsed: elapsed) {
                 if self.writer != nil { self.markerObservations.append(contentsOf: observations) }
@@ -297,13 +307,14 @@ final class TrackingStore: ObservableObject {
                             let success = self.rigidTracking.finish()
                             if success {
                                 DispatchQueue.main.async {
+                                    self.rigidTagMillimeters = Double(self.rigidTracking.tagSize) * 1000
                                     self.rigidReady = true; self.rigidCalibrating = false
                                     self.message = "Cube calibrated automatically (5 faces)"
                                 }
                             }
                         }
                     }
-                    if let estimate = self.rigidTracking.estimate(live) {
+                    if abs(self.tagTracking.tagSize - Double(self.rigidTracking.tagSize)) < 0.000001, let estimate = self.rigidTracking.estimate(live) {
                         self.lastRigidPreview = estimate.0
                         if self.writer != nil, let elapsed {
                             self.rigidSamples.append(RigidSample(elapsedSeconds: elapsed,

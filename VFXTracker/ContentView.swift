@@ -8,6 +8,11 @@ struct ContentView: View {
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
     @State private var showRigidSettings = false
+    @State private var exposure: Double = 0
+    @State private var temperature: Double = 5500
+    @State private var autoWhiteBalance = true
+    @State private var cameraFeedback = ""
+    @FocusState private var editingDimensions: Bool
     private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
     private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
     private let glass = Color.black.opacity(0.08)
@@ -15,16 +20,16 @@ struct ContentView: View {
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
-            .fill(.ultraThinMaterial).opacity(0.78)
-            .overlay(Capsule().fill(Color.white.opacity(0.055)))
+            .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
+            .overlay(Capsule().fill(Color.white.opacity(0.035)))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
             .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
     }
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(.ultraThinMaterial).opacity(0.78)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.055)))
+            .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.035)))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
@@ -60,6 +65,25 @@ struct ContentView: View {
         }
     }
 
+    private func applyCameraSettings() {
+        guard !store.recording, let device = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera else { cameraFeedback = "Camera controls unavailable"; return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            let bias = min(device.maxExposureTargetBias, max(device.minExposureTargetBias, Float(exposure)))
+            device.setExposureTargetBias(bias, completionHandler: nil)
+            if autoWhiteBalance {
+                if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
+            } else if device.isWhiteBalanceModeSupported(.locked) {
+                let gains = device.deviceWhiteBalanceGains(for: AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(temperature), tint: 0))
+                let maxGain = device.maxWhiteBalanceGain
+                let safe = AVCaptureDevice.WhiteBalanceGains(redGain: min(maxGain, max(1, gains.redGain)), greenGain: min(maxGain, max(1, gains.greenGain)), blueGain: min(maxGain, max(1, gains.blueGain)))
+                device.setWhiteBalanceModeLocked(with: safe, completionHandler: nil)
+            } else { cameraFeedback = "Manual white balance unavailable"; return }
+            cameraFeedback = "Camera settings applied"
+        } catch { cameraFeedback = error.localizedDescription }
+    }
+
     var body: some View {
         ZStack {
             ARCameraView(store: store, coordinatorRef: $coordinator)
@@ -71,11 +95,11 @@ struct ContentView: View {
                     Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundStyle(store.status == "Tracking normal" ? .green : .yellow)
-                    Button { showCameraSettings.toggle() } label: {
+                    Button { showRigidSettings = false; showCameraSettings.toggle() } label: {
                         Image(systemName: "gearshape")
                             .font(.system(size: 19))
                             .frame(width: 42, height: 42)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .light)
                             .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
                             .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
                     }
@@ -84,20 +108,39 @@ struct ContentView: View {
                 .padding(.horizontal, 18).padding(.top, 10)
 
                 if showCameraSettings {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Label("Camera Settings", systemImage: "camera")
-                                .font(.system(size: 14, weight: .semibold))
-                            Spacer()
-                            Button { showCameraSettings = false } label: { Image(systemName: "xmark.circle.fill") }
-                        }
-                        Text("ARKit controls the capture camera. Manual exposure and white balance require separate device capability testing before they can be enabled safely.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.76))
-                    }
-                    .padding(14)
-                    .background(glassRounded())
-                    .padding(.horizontal, 16).padding(.top, 8)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Settings").font(.headline)
+                                Spacer()
+                                Button("Done") { editingDimensions = false; store.updateRigidDimensions(); showCameraSettings = false }
+                            }
+                            if !showRigidSettings {
+                                Text("Exposure \(exposure, specifier: "%.1f") EV")
+                                Slider(value: $exposure, in: -2...2, step: 0.1, onEditingChanged: { active in if !active { applyCameraSettings() } })
+                                Toggle("Automatic white balance", isOn: $autoWhiteBalance).onChange(of: autoWhiteBalance) { _, _ in applyCameraSettings() }
+                                if !autoWhiteBalance {
+                                    Text("Temperature \(Int(temperature)) K")
+                                    Slider(value: $temperature, in: 2500...8500, step: 100, onEditingChanged: { active in if !active { applyCameraSettings() } })
+                                }
+                                Button("Reset camera settings") { exposure = 0; autoWhiteBalance = true; temperature = 5500; applyCameraSettings() }
+                                Text(cameraFeedback).font(.caption)
+                            }
+                            if store.trackingMode == .rigid || showRigidSettings {
+                                Divider()
+                                Text("Rigid cube").font(.headline)
+                                HStack { Text("Tag boundary (mm)"); Spacer(); TextField("75", value: $store.rigidTagMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90) }
+                                HStack { Text("Cube edge (mm)"); Spacer(); TextField("90", value: $store.rigidCubeMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90) }
+                                Text("Cube edge must be the actual outside dimension. Calibration can estimate the effective tag boundary from opposite faces. Recalibrate after changing dimensions.").font(.caption)
+                                Toggle("Extended Z axis", isOn: $store.showRigidAxis)
+                                Text("Axis length \(store.rigidAxisLength, specifier: "%.2f") m")
+                                Slider(value: $store.rigidAxisLength, in: 0.25...2, step: 0.05)
+                                Button("Recalibrate") { editingDimensions = false; store.updateRigidDimensions(); store.startRigidCalibration(); showCameraSettings = false }
+                            }
+                        }.disabled(store.recording)
+                        .padding(14)
+                    }.frame(maxHeight: 330)
+                    .background(glassRounded()).padding(.horizontal, 16).padding(.top, 8)
                 }
 
                 Spacer()
@@ -121,7 +164,7 @@ struct ContentView: View {
                 if store.trackingMode == .rigid {
                     VStack(spacing: 6) {
                         HStack(spacing: 8) {
-                            Button { showRigidSettings = true } label: {
+                            Button { showRigidSettings = true; showCameraSettings = true } label: {
                                 Label("Cube Settings", systemImage: "cube.transparent")
                             }
                             Spacer(minLength: 3)
@@ -224,46 +267,6 @@ struct ContentView: View {
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .sheet(isPresented: $showRigidSettings) {
-            NavigationStack {
-                Form {
-                    Section("Cube dimensions") {
-                        HStack {
-                            Text("AprilTag size (mm)")
-                            Spacer()
-                            TextField("75", value: $store.rigidTagMillimeters, format: .number)
-                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                                .frame(width: 95)
-                        }
-                        HStack {
-                            Text("Cube edge (mm)")
-                            Spacer()
-                            TextField("90", value: $store.rigidCubeMillimeters, format: .number)
-                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                                .frame(width: 95)
-                        }
-                        Text("Measure the detection boundary of the black-and-white tag, not the surrounding paper. Cube edge is the outside face-to-face dimension.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    Section("Calibration") {
-                        Text("Detected IDs: \(store.rigidDetectedIDs)")
-                        Text("Show adjacent faces together while slowly rotating the cube. Keep the cube in the camera view; move the camera if needed.")
-                            .font(.footnote)
-                        Button("Recalibrate") { store.startRigidCalibration() }
-                            .disabled(store.recording)
-                    }
-                }
-                .navigationTitle("Rigid Cube")
-                .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        store.rigidTagMillimeters = max(10, min(300, store.rigidTagMillimeters))
-                        store.rigidCubeMillimeters = max(20, min(500, store.rigidCubeMillimeters))
-                        store.updateRigidDimensions()
-                        showRigidSettings = false
-                    }
-                }}
-            }
-        }
         .sheet(isPresented: $store.showTakes) {
             NavigationStack {
                 List {

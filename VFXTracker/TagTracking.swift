@@ -18,6 +18,7 @@ struct MarkerFile: Codable {
     let observations: [MarkerObservation]
 }
 struct LiveMarker {
+    let weight: Float
     let id: Int
     let transform: simd_float4x4
 }
@@ -75,7 +76,11 @@ final class TagTracking {
             // Convert both camera and marker axes to ARKit conventions.
             let markerWorld = frame.camera.transform * cameraBasis * cameraFromTag * cameraBasis
             let local = inverseOrigin * markerWorld
-            live.append(LiveMarker(id: Int(p.id), transform: markerWorld))
+            let normal = SIMD3<Float>(markerWorld.columns.2.x, markerWorld.columns.2.y, markerWorld.columns.2.z)
+            let towardCamera = SIMD3<Float>(frame.camera.transform.columns.3.x - markerWorld.columns.3.x, frame.camera.transform.columns.3.y - markerWorld.columns.3.y, frame.camera.transform.columns.3.z - markerWorld.columns.3.z)
+            let angle = max(0.15, abs(simd_dot(normal, simd_normalize(towardCamera))))
+            let weight = max(0.1, min(3, p.decision_margin / 50)) * angle * angle
+            live.append(LiveMarker(weight: weight, id: Int(p.id), transform: markerWorld))
             if let elapsed {
                 recorded.append(MarkerObservation(id: Int(p.id), elapsedSeconds: elapsed,
                     arTimestamp: frame.timestamp, markerToOrigin: flatten(local), decisionMargin: p.decision_margin))

@@ -50,10 +50,10 @@ final class RigidTracking {
     private struct Saved: Codable { var tagSize: Float; var edge: Float; var transforms: [Int: [Float]] }
     private func save() {
         let data = Saved(tagSize: tagSize, edge: cubeEdge, transforms: model.mapValues(flatten))
-        if let encoded = try? JSONEncoder().encode(data) { UserDefaults.standard.set(encoded, forKey: "McTrackRigidCalibrationV1") }
+        if let encoded = try? JSONEncoder().encode(data) { UserDefaults.standard.set(encoded, forKey: "McTrackRigidCalibrationV2") }
     }
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: "McTrackRigidCalibrationV1"),
+        guard let data = UserDefaults.standard.data(forKey: "McTrackRigidCalibrationV2"),
               let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
         tagSize = saved.tagSize; cubeEdge = saved.edge; calibratedEdge = saved.edge
         model = saved.transforms.compactMapValues { values in
@@ -67,6 +67,7 @@ final class RigidTracking {
         seen = Set(model.keys)
     }
 
+    func invalidate() { model.removeAll(); edges.removeAll(); seen.removeAll(); calibrating = false; UserDefaults.standard.removeObject(forKey: "McTrackRigidCalibrationV2") }
     func start() { calibrating = true; model.removeAll(); edges.removeAll(); seen.removeAll() }
     func cancel() { calibrating = false }
     func updateCalibration(_ tags: [LiveMarker]) {
@@ -106,6 +107,35 @@ final class RigidTracking {
             }
         }
         guard rootFromTag.count >= 5 else { return false }
+        // Opposite face spacing is the known physical cube edge. Estimate the
+        // effective detector-boundary size from both opposing pairs.
+        let ordered = rootFromTag.sorted { $0.key < $1.key }
+        var spacings: [Float] = []
+        for i in ordered.indices {
+            for j in ordered.indices where j > i {
+                let a = ordered[i].value, b = ordered[j].value
+                let na = SIMD3<Float>(a.columns.2.x,a.columns.2.y,a.columns.2.z)
+                let nb = SIMD3<Float>(b.columns.2.x,b.columns.2.y,b.columns.2.z)
+                if simd_dot(na,nb) < -0.90 {
+                    let d = SIMD3<Float>(a.columns.3.x-b.columns.3.x,a.columns.3.y-b.columns.3.y,a.columns.3.z-b.columns.3.z)
+                    spacings.append(abs(simd_dot(d,simd_normalize(na-nb))))
+                }
+            }
+        }
+        if spacings.count == 2 {
+            let mean = (spacings[0]+spacings[1])*0.5
+            if mean > 0.001 && abs(spacings[0]-spacings[1])/mean < 0.15 {
+                let factor = cubeEdge/mean
+                if factor >= 0.35 && factor <= 1.5 {
+                    tagSize *= factor
+                    rootFromTag = rootFromTag.mapValues { m in
+                        var scaled = m
+                        scaled.columns.3 = SIMD4<Float>(m.columns.3.x*factor,m.columns.3.y*factor,m.columns.3.z*factor,1)
+                        return scaled
+                    }
+                }
+            }
+        }
         // Each tag's +Z normal points away from its printed face. For a cube, its
         // center lies half an edge length behind that face. Estimate center in
         // root-tag coordinates; use the user-adjustable cube edge for scale.
@@ -114,8 +144,29 @@ final class RigidTracking {
             centers += SIMD3<Float>(pose.columns.3.x, pose.columns.3.y, pose.columns.3.z) - SIMD3<Float>(pose.columns.2.x, pose.columns.2.y, pose.columns.2.z) * (cubeEdge * 0.5)
         }
         centers /= Float(rootFromTag.count)
-        var rootFromCube = matrix_identity_float4x4
-        rootFromCube.columns.3 = SIMD4<Float>(centers, 1)
+        // Identify the unpaired outward normal, then construct an orthonormal cube basis.
+        let faces = rootFromTag.sorted { $0.key < $1.key }
+        func normal(_ m: simd_float4x4) -> SIMD3<Float> { simd_normalize(SIMD3<Float>(m.columns.2.x,m.columns.2.y,m.columns.2.z)) }
+        guard let top = faces.max(by: { a,b in
+            let na = normal(a.value), nb = normal(b.value)
+            return (faces.map { simd_dot(na, normal($0.value)) }.min() ?? -1) < (faces.map { simd_dot(nb, normal($0.value)) }.min() ?? -1)
+        }) else { return false }
+        let z = normal(top.value)
+        guard let side = faces.first(where: { abs(simd_dot(normal($0.value), z)) < 0.5 }) else { return false }
+        let sideNormal = normal(side.value)
+        let x = simd_normalize(sideNormal - z * simd_dot(sideNormal,z))
+        let y = simd_normalize(simd_cross(z,x))
+        // Fit center using face planes, not tag centers: in-plane placement errors do not shift the cube.
+        var lhs = simd_float3x3(diagonal: SIMD3<Float>(repeating: 0))
+        var rhs = SIMD3<Float>(repeating: 0)
+        for face in faces {
+            let n = normal(face.value)
+            let p = SIMD3<Float>(face.value.columns.3.x,face.value.columns.3.y,face.value.columns.3.z)
+            lhs += simd_float3x3(columns: (n*n.x,n*n.y,n*n.z))
+            rhs += n * (simd_dot(n,p) - cubeEdge * 0.5)
+        }
+        if abs(simd_determinant(lhs)) > 0.01 { centers = simd_inverse(lhs) * rhs }
+        var rootFromCube = simd_float4x4(columns: (SIMD4<Float>(x,0), SIMD4<Float>(y,0), SIMD4<Float>(z,0), SIMD4<Float>(centers,1)))
         let cubeFromRoot = simd_inverse(rootFromCube)
         model = rootFromTag.mapValues { cubeFromRoot * $0 }
         calibratedEdge = cubeEdge
@@ -125,23 +176,34 @@ final class RigidTracking {
     }
     func estimate(_ tags: [LiveMarker]) -> (simd_float4x4, [Int])? {
         guard ready else { return nil }
-        let candidates: [(Int, simd_float4x4)] = tags.compactMap { tag in
+        let candidates: [(Int, simd_float4x4, Float)] = tags.compactMap { tag in
             guard let cubeFromTag = model[tag.id] else { return nil }
-            return (tag.id, tag.transform * simd_inverse(cubeFromTag))
+            return (tag.id, tag.transform * simd_inverse(cubeFromTag), tag.weight)
         }
-        guard let first = candidates.first else { return nil }
-        // Weighted mean of independent face estimates. Reject gross disagreement.
-        let positions = candidates.map { SIMD3<Float>($0.1.columns.3.x, $0.1.columns.3.y, $0.1.columns.3.z) }
-        let firstPos = SIMD3<Float>(first.1.columns.3.x, first.1.columns.3.y, first.1.columns.3.z)
-        let filtered = candidates.filter { simd_length(SIMD3<Float>($0.1.columns.3.x, $0.1.columns.3.y, $0.1.columns.3.z) - firstPos) < max(0.08, cubeEdge) }
-        guard !filtered.isEmpty else { return nil }
+        guard !candidates.isEmpty else { return nil }
+        func position(_ m: simd_float4x4) -> SIMD3<Float> { SIMD3<Float>(m.columns.3.x,m.columns.3.y,m.columns.3.z) }
+        let threshold = max(0.025, cubeEdge * 0.45)
+        func agrees(_ a: simd_float4x4, _ b: simd_float4x4) -> Bool {
+            simd_length(position(a)-position(b)) < threshold && abs(simd_dot(rotationOf(a).vector, rotationOf(b).vector)) > 0.94
+        }
+        let ranked = candidates.sorted { a,b in
+            let ac = candidates.filter { agrees(a.1,$0.1) }.count
+            let bc = candidates.filter { agrees(b.1,$0.1) }.count
+            return ac == bc ? a.2 > b.2 : ac > bc
+        }
+        guard let best = ranked.first else { return nil }
+        let filtered = ranked.filter { agrees(best.1,$0.1) }
         var translation = SIMD3<Float>(repeating: 0)
-        var orientation = rotationOf(filtered[0].1)
-        for (i, pair) in filtered.enumerated() {
-            translation += SIMD3<Float>(pair.1.columns.3.x, pair.1.columns.3.y, pair.1.columns.3.z)
-            if i > 0 { orientation = simd_slerp(orientation, rotationOf(pair.1), 1 / Float(i + 1)) }
+        var orientation = rotationOf(best.1)
+        var total: Float = 0
+        for pair in filtered {
+            let w = pair.2
+            translation += position(pair.1) * w
+            orientation = simd_slerp(orientation, rotationOf(pair.1), w / (total + w))
+            total += w
         }
-        translation /= Float(filtered.count)
+        guard total > 0 else { return nil }
+        translation /= total
         var pose = simd_float4x4(orientation)
         pose.columns.3 = SIMD4<Float>(translation, 1)
         return (pose, filtered.map { $0.0 })

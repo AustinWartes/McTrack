@@ -44,6 +44,7 @@ struct ARCameraView: UIViewRepresentable {
         private let gizmo = SCNNode()
         private let groundGrid = SCNNode()
         private let rigidGizmo = SCNNode()
+        private let rigidAxis = SCNNode()
         private var markerNodes: [Int: SCNNode] = [:]
         private var lastMarkerSeen: [Int: TimeInterval] = [:]
         private var gridMaterial: SCNMaterial?
@@ -249,9 +250,11 @@ struct ARCameraView: UIViewRepresentable {
         }
 
         private func showRigidPose(_ pose: simd_float4x4?) {
-            guard let pose else { return }
+            guard let pose else { rigidGizmo.isHidden = true; return }
             rigidGizmo.simdTransform = pose
             rigidGizmo.simdScale = SIMD3<Float>(repeating: Float(store.rigidCubeMillimeters / 1000))
+            rigidAxis.isHidden = !store.showRigidAxis
+            rigidAxis.simdScale = SIMD3<Float>(1, 1, Float(store.rigidAxisLength) / max(0.001, Float(store.rigidCubeMillimeters / 1000)))
             rigidGizmo.isHidden = false
         }
         private func makeRigidGizmo() {
@@ -274,8 +277,14 @@ struct ARCameraView: UIViewRepresentable {
             for (i,j) in pairs {
                 segment(vertices[i], vertices[j], radius: 0.012, color: color, parent: rigidGizmo)
             }
-            segment(SIMD3(0,-0.65,0), SIMD3(0,0.65,0), radius: 0.015,
-                    color: UIColor(red: 0.65, green: 1, blue: 0.75, alpha: 1), parent: rigidGizmo)
+            segment(SIMD3(0,0,-0.5), SIMD3(0,0,0.5), radius: 0.009,
+                    color: UIColor(red: 0.65, green: 0.78, blue: 1, alpha: 1), parent: rigidAxis)
+            for node in rigidAxis.childNodes {
+                node.renderingOrder = 100
+                node.geometry?.firstMaterial?.readsFromDepthBuffer = false
+                node.geometry?.firstMaterial?.writesToDepthBuffer = false
+            }
+            rigidGizmo.addChildNode(rigidAxis)
             rigidGizmo.simdScale = SIMD3<Float>(repeating: Float(store.rigidCubeMillimeters / 1000))
         }
         private func material(_ color: UIColor) -> SCNMaterial {
