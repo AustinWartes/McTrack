@@ -3,7 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { int32_t id; float decision_margin; float translation[3]; float rotation[9]; } MCTagPose;
+typedef struct { int32_t id; float decision_margin; float translation[3]; float rotation[9]; float corners[8]; } MCTagPose;
 void *mc_tag_create(void);
 void mc_tag_destroy(void *detector);
 // Input is the full-resolution, unrotated ARKit Y plane. Returns number of poses written.

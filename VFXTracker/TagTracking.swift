@@ -9,6 +9,7 @@ struct MarkerObservation: Codable {
     let arTimestamp: Double
     let markerToOrigin: [Float]
     let decisionMargin: Float
+    let sensorCorners: [Float]
 }
 struct MarkerFile: Codable {
     let format: String
@@ -83,7 +84,7 @@ final class TagTracking {
             live.append(LiveMarker(weight: weight, id: Int(p.id), transform: markerWorld))
             if let elapsed {
                 recorded.append(MarkerObservation(id: Int(p.id), elapsedSeconds: elapsed,
-                    arTimestamp: frame.timestamp, markerToOrigin: flatten(local), decisionMargin: p.decision_margin))
+                    arTimestamp: frame.timestamp, markerToOrigin: flatten(local), decisionMargin: p.decision_margin, sensorCorners: [p.corners.0 / Float(sx), p.corners.1 / Float(sy), p.corners.2 / Float(sx), p.corners.3 / Float(sy), p.corners.4 / Float(sx), p.corners.5 / Float(sy), p.corners.6 / Float(sx), p.corners.7 / Float(sy)]))
             }
         }
         return (live, recorded)

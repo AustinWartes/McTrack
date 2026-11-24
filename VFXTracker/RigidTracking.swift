@@ -14,6 +14,7 @@ struct RigidFile: Codable {
     let tagIDs: [Int]
     let samples: [RigidSample]
     let calibrationStatus: String
+    let cubeFromTag: [Int: [Float]]
 }
 
 // All methods called from TrackingStore's serial AR frame queue.

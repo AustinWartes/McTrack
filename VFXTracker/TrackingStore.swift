@@ -233,6 +233,10 @@ final class TrackingStore: ObservableObject {
             let markerSamples = self.markerObservations
             let rigidSamples = self.rigidSamples
             let rigidModel = self.rigidTracking
+            let calibration = rigidModel.model.mapValues(flatten)
+            let calibratedTagSize = Double(rigidModel.tagSize)
+            let calibratedEdge = Double(rigidModel.calibratedEdge)
+            let calibrationReady = rigidModel.ready
             let recordedMode = self.activeTrackingMode
             let origin = self.origin
             let takeNumber = self.activeTakeNumber
@@ -245,12 +249,13 @@ final class TrackingStore: ObservableObject {
                     let markerFile = MarkerFile(format: "McTrack_Markers_v1", family: "tagStandard41h12", tagSizeMeters: recordedMode == .rigid ? self.rigidTagMillimeters / 1000 : 0.0889, coordinateSystem: "origin-local ARKit right-handed meters, +Y up, column-major", observations: markerSamples)
                     try JSONEncoder.pretty.encode(markerFile).write(to: folder.appendingPathComponent("markers.json"), options: .atomic)
                     if recordedMode == .rigid {
-                        let rigid = RigidFile(format: "McTrack_Rigid_v1", tagSizeMeters: self.rigidTagMillimeters / 1000,
-                            cubeEdgeMeters: Double(rigidModel.calibratedEdge), tagIDs: rigidModel.model.keys.sorted(),
-                            samples: rigidSamples, calibrationStatus: rigidModel.ready ? "calibrated" : "incomplete")
+                        let rigid = RigidFile(format: "McTrack_Rigid_v1", tagSizeMeters: calibratedTagSize,
+                            cubeEdgeMeters: calibratedEdge, tagIDs: calibration.keys.sorted(),
+                            samples: rigidSamples, calibrationStatus: calibrationReady ? "calibrated" : "incomplete", cubeFromTag: calibration)
                         try JSONEncoder.pretty.encode(rigid).write(to: folder.appendingPathComponent("rigid.json"), options: .atomic)
                     }
-                    let metadata: [String: Any] = ["video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
+                    try JSONEncoder.pretty.encode(writer.writtenVideoTimestamps).write(to: folder.appendingPathComponent("video_timestamps.json"), options: .atomic)
+                    let metadata: [String: Any] = ["videoTimestamps": "video_timestamps.json", "video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
                     let finalName = String(format: "Take_%03d_%@", takeNumber, Self.friendlyDateName())

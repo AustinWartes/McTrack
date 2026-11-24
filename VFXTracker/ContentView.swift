@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
     @State private var showRigidSettings = false
+    @State private var exposureLocked = false
     @State private var exposure: Double = 0
     @State private var temperature: Double = 5500
     @State private var autoWhiteBalance = true
@@ -15,13 +16,13 @@ struct ContentView: View {
     @FocusState private var editingDimensions: Bool
     private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
     private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
-    private let glass = Color.black.opacity(0.08)
+    private let glass = Color.black.opacity(0.06)
 
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
             .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
-            .overlay(Capsule().fill(Color.white.opacity(0.035)))
+            .overlay(Capsule().fill(glass))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
             .shadow(color: active ? coral.opacity(0.20) : .clear, radius: 12)
@@ -29,7 +30,7 @@ struct ContentView: View {
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.white.opacity(0.035)))
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(glass))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
     }
@@ -71,7 +72,12 @@ struct ContentView: View {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
             let bias = min(device.maxExposureTargetBias, max(device.minExposureTargetBias, Float(exposure)))
-            device.setExposureTargetBias(bias, completionHandler: nil)
+            if exposureLocked {
+                if device.isExposureModeSupported(.locked) { device.exposureMode = .locked } else { exposureLocked = false }
+            } else {
+                if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                device.setExposureTargetBias(bias, completionHandler: nil)
+            }
             if autoWhiteBalance {
                 if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
             } else if device.isWhiteBalanceModeSupported(.locked) {
@@ -100,6 +106,7 @@ struct ContentView: View {
                             .font(.system(size: 19))
                             .frame(width: 42, height: 42)
                             .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .light)
+                            .overlay(Circle().fill(glass))
                             .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
                             .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
                     }
@@ -108,39 +115,49 @@ struct ContentView: View {
                 .padding(.horizontal, 18).padding(.top, 10)
 
                 if showCameraSettings {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label(showRigidSettings ? "Rigid Body" : "Camera", systemImage: showRigidSettings ? "cube" : "camera")
+                                .font(.system(size: 15, weight: .semibold))
+                            Spacer()
+                            Button { editingDimensions = false; if showRigidSettings { store.updateRigidDimensions() }; showCameraSettings = false } label: { Image(systemName: "xmark").padding(6) }
+                        }
+                        if !showRigidSettings {
                             HStack {
-                                Text("Settings").font(.headline)
+                                Label("Exposure", systemImage: "sun.max")
                                 Spacer()
-                                Button("Done") { editingDimensions = false; store.updateRigidDimensions(); showCameraSettings = false }
+                                Text(String(format: "%+.1f EV", exposure)).monospacedDigit().foregroundStyle(brightCoral)
+                                Button { exposureLocked.toggle(); applyCameraSettings() } label: {
+                                    Image(systemName: exposureLocked ? "lock.fill" : "lock.open").foregroundStyle(exposureLocked ? brightCoral : .white).padding(6)
+                                }.accessibilityLabel(exposureLocked ? "Unlock exposure" : "Lock exposure")
                             }
-                            if !showRigidSettings {
-                                Text("Exposure \(exposure, specifier: "%.1f") EV")
-                                Slider(value: $exposure, in: -2...2, step: 0.1, onEditingChanged: { active in if !active { applyCameraSettings() } })
-                                Toggle("Automatic white balance", isOn: $autoWhiteBalance).onChange(of: autoWhiteBalance) { _, _ in applyCameraSettings() }
-                                if !autoWhiteBalance {
-                                    Text("Temperature \(Int(temperature)) K")
-                                    Slider(value: $temperature, in: 2500...8500, step: 100, onEditingChanged: { active in if !active { applyCameraSettings() } })
-                                }
-                                Button("Reset camera settings") { exposure = 0; autoWhiteBalance = true; temperature = 5500; applyCameraSettings() }
-                                Text(cameraFeedback).font(.caption)
+                            GlowSlider(value: $exposure, range: -2...2, step: 0.1, commit: applyCameraSettings).disabled(exposureLocked).opacity(exposureLocked ? 0.4 : 1)
+                            HStack {
+                                Text("WB").font(.system(size: 10, weight: .bold)).padding(4).overlay(RoundedRectangle(cornerRadius: 4).stroke(.white.opacity(0.5)))
+                                Text("Auto white balance"); Spacer()
+                                GlowToggle(value: $autoWhiteBalance).onChange(of: autoWhiteBalance) { _, _ in applyCameraSettings() }
                             }
-                            if store.trackingMode == .rigid || showRigidSettings {
-                                Divider()
-                                Text("Rigid cube").font(.headline)
-                                HStack { Text("Tag boundary (mm)"); Spacer(); TextField("75", value: $store.rigidTagMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90) }
-                                HStack { Text("Cube edge (mm)"); Spacer(); TextField("90", value: $store.rigidCubeMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90) }
-                                Text("Cube edge must be the actual outside dimension. Calibration can estimate the effective tag boundary from opposite faces. Recalibrate after changing dimensions.").font(.caption)
-                                Toggle("Extended Z axis", isOn: $store.showRigidAxis)
-                                Text("Axis length \(store.rigidAxisLength, specifier: "%.2f") m")
-                                Slider(value: $store.rigidAxisLength, in: 0.25...2, step: 0.05)
-                                Button("Recalibrate") { editingDimensions = false; store.updateRigidDimensions(); store.startRigidCalibration(); showCameraSettings = false }
+                            if !autoWhiteBalance {
+                                HStack { Text("Temperature"); Spacer(); Text("\(Int(temperature)) K").foregroundStyle(brightCoral) }
+                                GlowSlider(value: $temperature, range: 2500...8500, step: 100, commit: applyCameraSettings)
                             }
-                        }.disabled(store.recording)
-                        .padding(14)
-                    }.frame(maxHeight: 330)
+                            Button("Reset camera settings") { exposureLocked = false; exposure = 0; autoWhiteBalance = true; temperature = 5500; applyCameraSettings() }.foregroundStyle(brightCoral)
+                            if !cameraFeedback.isEmpty && cameraFeedback != "Camera settings applied" { Text(cameraFeedback).font(.caption) }
+                        } else {
+                            HStack { Text("Tag boundary (mm)"); Spacer(); TextField("75", value: $store.rigidTagMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90).foregroundStyle(brightCoral) }
+                            HStack { Text("Cube edge (mm)"); Spacer(); TextField("90", value: $store.rigidCubeMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90).foregroundStyle(brightCoral) }
+                            if editingDimensions { Button("Done") { editingDimensions = false; store.updateRigidDimensions() }.foregroundStyle(brightCoral) }
+                            HStack { Text("Extended Z axis"); Spacer(); GlowToggle(value: $store.showRigidAxis) }
+                            HStack { Text("Axis length"); Spacer(); Text("\(store.rigidAxisLength, specifier: "%.2f") m").foregroundStyle(brightCoral) }
+                            GlowSlider(value: $store.rigidAxisLength, range: 0.25...2, step: 0.05, commit: {})
+                            Button("Recalibrate") { editingDimensions = false; store.updateRigidDimensions(); store.startRigidCalibration(); showCameraSettings = false }.foregroundStyle(brightCoral)
+                        }
+                    }.font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                    .disabled(store.recording).padding(14)
                     .background(glassRounded()).padding(.horizontal, 16).padding(.top, 8)
+                    .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editingDimensions = false; store.updateRigidDimensions() }.foregroundStyle(coral) } }
+                    .onChange(of: editingDimensions) { _, active in if !active { store.updateRigidDimensions() } }
+
                 }
 
                 Spacer()
@@ -300,3 +317,43 @@ struct ContentView: View {
     }
 }
 
+
+private struct GlowSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let commit: () -> Void
+    private let red = Color(red: 0.88, green: 0.23, blue: 0.30)
+    private let thumb = Color(red: 1, green: 0.58, blue: 0.55)
+    var body: some View {
+        GeometryReader { g in
+            let w = max(1, g.size.width - 16)
+            let x = CGFloat(min(1, max(0, (value-range.lowerBound)/(range.upperBound-range.lowerBound)))) * w
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.18)).frame(height: 3)
+                Capsule().fill(red).frame(width: x, height: 3).shadow(color: red, radius: 4)
+                Circle().fill(thumb).frame(width: 14, height: 14).shadow(color: red, radius: 5).offset(x: x-7)
+            }.padding(.horizontal, 8).frame(height: 28).contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { d in
+                let f = Double(min(1, max(0, (d.location.x-8)/w)))
+                value = min(range.upperBound, max(range.lowerBound, range.lowerBound + ((f*(range.upperBound-range.lowerBound))/step).rounded()*step))
+            }.onEnded { _ in commit() })
+        }.frame(height: 28)
+        .accessibilityElement().accessibilityLabel("Adjustment").accessibilityValue(String(format: "%.2f", value))
+        .accessibilityAdjustableAction { direction in
+            switch direction { case .increment: value = min(range.upperBound, value+step); case .decrement: value = max(range.lowerBound, value-step); @unknown default: break }; commit()
+        }
+    }
+}
+private struct GlowToggle: View {
+    @Binding var value: Bool
+    var body: some View {
+        Button { value.toggle() } label: {
+            Capsule().fill(value ? Color(red: 0.88, green: 0.23, blue: 0.30) : .white.opacity(0.16))
+                .frame(width: 36, height: 20).shadow(color: value ? .red.opacity(0.6) : .clear, radius: 4)
+                .overlay(alignment: value ? .trailing : .leading) {
+                    Circle().fill(value ? Color(red: 1, green: 0.66, blue: 0.63) : .white.opacity(0.8)).frame(width: 14, height: 14).shadow(color: value ? .red : .clear, radius: 3).padding(3)
+                }.frame(minHeight: 32)
+        }.buttonStyle(.plain).accessibilityValue(value ? "On" : "Off")
+    }
+}

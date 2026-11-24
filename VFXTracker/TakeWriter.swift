@@ -17,6 +17,7 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var started = false
     private var firstTimestamp: Double?
     private var previousVideo: Double = -1
+    private(set) var writtenVideoTimestamps: [Double] = []
     private var audioCount = 0
     private var finishing = false
     let resolution: Int
@@ -100,6 +101,7 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         context.render(cropped, to: output)
         if adaptor.append(output, withPresentationTime: CMTime(seconds: arTimestamp, preferredTimescale: 1_000_000)) {
             previousVideo = arTimestamp
+            writtenVideoTimestamps.append(arTimestamp)
         }
     }
 

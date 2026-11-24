@@ -45,6 +45,7 @@ int mc_tag_detect(void *opaque, const uint8_t *y, int width, int height, int str
         if (error < 0 || !pose.R || !pose.t) continue;
         MCTagPose *p = &out[count++];
         p->id = d->id;
+        for (int j=0; j<4; j++) { p->corners[2*j] = (float)d->p[j][0]; p->corners[2*j+1] = (float)d->p[j][1]; }
         p->decision_margin = (float)d->decision_margin;
         for (int j = 0; j < 3; j++) {
             p->translation[j] = (float)MATD_EL(pose.t, j, 0);
