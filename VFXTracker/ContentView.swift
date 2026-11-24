@@ -16,12 +16,12 @@ struct ContentView: View {
     @FocusState private var editingDimensions: Bool
     private let coral = Color(red: 1.0, green: 0.27, blue: 0.36)
     private let brightCoral = Color(red: 1.0, green: 0.69, blue: 0.69)
-    private let glass = Color.black.opacity(0.06)
+    private let glass = Color.black.opacity(0.036)
 
     // Tighter additive-style halo: bright inner rim and restrained colored outer light.
     private func glassCapsule(active: Bool = false) -> some View {
         Capsule()
-            .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
+            .fill(.ultraThinMaterial).opacity(0.65).environment(\.colorScheme, .dark)
             .overlay(Capsule().fill(glass))
             .overlay(Capsule().strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.30)], startPoint: .top, endPoint: .bottom), lineWidth: 1.25))
             .shadow(color: active ? coral.opacity(0.65) : .clear, radius: 5)
@@ -29,7 +29,7 @@ struct ContentView: View {
     }
     private func glassRounded(_ radius: CGFloat = 18, active: Bool = false) -> some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(.ultraThinMaterial).environment(\.colorScheme, .light)
+            .fill(.ultraThinMaterial).opacity(0.65).environment(\.colorScheme, .dark)
             .overlay(RoundedRectangle(cornerRadius: radius).fill(glass))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(active ? LinearGradient(colors: [coral, brightCoral, coral], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [.white.opacity(0.33), .white.opacity(0.33)], startPoint: .top, endPoint: .bottom), lineWidth: 1.0))
             .shadow(color: active ? coral.opacity(0.48) : .clear, radius: 5)
@@ -105,7 +105,7 @@ struct ContentView: View {
                         Image(systemName: "gearshape")
                             .font(.system(size: 19))
                             .frame(width: 42, height: 42)
-                            .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .light)
+                            .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .dark)
                             .overlay(Circle().fill(glass))
                             .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
                             .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
@@ -117,7 +117,7 @@ struct ContentView: View {
                 if showCameraSettings {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Label(showRigidSettings ? "Rigid Body" : "Camera", systemImage: showRigidSettings ? "cube" : "camera")
+                            HStack { Image(systemName: showRigidSettings ? "cube" : "camera").foregroundStyle(coral).shadow(color: .red, radius: 5); Text(showRigidSettings ? "Rigid Body" : "Camera") }
                                 .font(.system(size: 15, weight: .semibold))
                             Spacer()
                             Button { editingDimensions = false; if showRigidSettings { store.updateRigidDimensions() }; showCameraSettings = false } label: { Image(systemName: "xmark").padding(6) }
@@ -146,7 +146,7 @@ struct ContentView: View {
                         } else {
                             HStack { Text("Tag boundary (mm)"); Spacer(); TextField("75", value: $store.rigidTagMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90).foregroundStyle(brightCoral) }
                             HStack { Text("Cube edge (mm)"); Spacer(); TextField("90", value: $store.rigidCubeMillimeters, format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing).focused($editingDimensions).frame(width: 90).foregroundStyle(brightCoral) }
-                            if editingDimensions { Button("Done") { editingDimensions = false; store.updateRigidDimensions() }.foregroundStyle(brightCoral) }
+                            
                             HStack { Text("Extended Z axis"); Spacer(); GlowToggle(value: $store.showRigidAxis) }
                             HStack { Text("Axis length"); Spacer(); Text("\(store.rigidAxisLength, specifier: "%.2f") m").foregroundStyle(brightCoral) }
                             GlowSlider(value: $store.rigidAxisLength, range: 0.25...2, step: 0.05, commit: {})
@@ -155,12 +155,13 @@ struct ContentView: View {
                     }.font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                     .disabled(store.recording).padding(14)
                     .background(glassRounded()).padding(.horizontal, 16).padding(.top, 8)
-                    .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editingDimensions = false; store.updateRigidDimensions() }.foregroundStyle(coral) } }
+                    
                     .onChange(of: editingDimensions) { _, active in if !active { store.updateRigidDimensions() } }
 
                 }
 
                 Spacer()
+                if editingDimensions { HStack { Spacer(); Button { editingDimensions = false } label: { Label("Done", systemImage: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(brightCoral).shadow(color: .red, radius: 4).padding(.horizontal, 15).padding(.vertical, 9).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12)).environment(\.colorScheme, .dark).overlay(RoundedRectangle(cornerRadius: 12).fill(coral.opacity(0.10))).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(coral, lineWidth: 1).shadow(color: .red, radius: 5)) } }.padding(.horizontal, 18) }
                 HStack {
                     Spacer()
                     if store.hasOrigin {
@@ -181,7 +182,7 @@ struct ContentView: View {
                 if store.trackingMode == .rigid {
                     VStack(spacing: 6) {
                         HStack(spacing: 8) {
-                            Button { showRigidSettings = true; showCameraSettings = true } label: {
+                            Button { if showRigidSettings && showCameraSettings { editingDimensions = false; showCameraSettings = false } else { showRigidSettings = true; showCameraSettings = true } } label: {
                                 Label("Cube Settings", systemImage: "cube.transparent")
                             }
                             Spacer(minLength: 3)

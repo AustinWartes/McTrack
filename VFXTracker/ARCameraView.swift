@@ -342,7 +342,7 @@ struct ARCameraView: UIViewRepresentable {
             m.shaderModifiers = [.surface: """
                 uniform vec3 revealUV;
                 float distanceMeters = distance(_surface.diffuseTexcoord, revealUV.xy) * 5.0;
-                float fade = 1.0 - smoothstep(0.06, 0.825, distanceMeters);
+                float fade = 1.0 - smoothstep(0.045, 0.61875, distanceMeters);
                 _surface.diffuse.a *= fade;
             """]
             plane.materials = [m]
@@ -356,14 +356,14 @@ struct ARCameraView: UIViewRepresentable {
         private func makeGizmo() {
             // Restore the distinct glowing origin axes; tag axes remain plain pastel.
             let axes: [(SIMD3<Float>, UIColor)] = [
-                (SIMD3<Float>(1,0,0), UIColor(red: 1, green: 0.58, blue: 0.56, alpha: 1)),
-                (SIMD3<Float>(0,1,0), UIColor(red: 0.54, green: 1, blue: 0.58, alpha: 1)),
-                (SIMD3<Float>(0,0,1), UIColor(red: 0.55, green: 0.74, blue: 1, alpha: 1))
+                (SIMD3<Float>(1,0,0), UIColor(red: 1, green: 0.18, blue: 0.16, alpha: 1)),
+                (SIMD3<Float>(0,1,0), UIColor(red: 0.18, green: 1, blue: 0.24, alpha: 1)),
+                (SIMD3<Float>(0,0,1), UIColor(red: 0.18, green: 0.48, blue: 1, alpha: 1))
             ]
             for (direction, color) in axes {
                 segment(.zero, direction * 0.28, radius: 0.0035, color: color, parent: gizmo)
                 // Transparent wider sleeves form a gentle luminous halo.
-                segment(.zero, direction * 0.28, radius: 0.010, color: color.withAlphaComponent(0.22), parent: gizmo)
+                segment(.zero, direction * 0.28, radius: 0.020, color: color.withAlphaComponent(0.30), parent: gizmo)
                 for index in 0..<6 {
                     let start = Float(index) * 0.046 + 0.008
                     let end = start + 0.024
