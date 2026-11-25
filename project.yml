@@ -28,8 +28,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.artisttools.VFXTracker
-        MARKETING_VERSION: 1.2.1
-        CURRENT_PROJECT_VERSION: 121
+        MARKETING_VERSION: 1.2.2
+        CURRENT_PROJECT_VERSION: 122
         SWIFT_VERSION: 5.0
         SWIFT_OBJC_BRIDGING_HEADER: AprilTagBridge/TagBridge.h
         HEADER_SEARCH_PATHS: "$(SRCROOT)/AprilTagVendor/apriltag $(SRCROOT)/AprilTagVendor/apriltag/common"

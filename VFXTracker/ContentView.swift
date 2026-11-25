@@ -162,14 +162,22 @@ struct ContentView: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if store.trackingMode == .rigid {
-                        Button { showRigidSettings = true; showCameraSettings = true } label: { Label("Cube", systemImage: "cube.transparent") }.disabled(store.recording)
-                        Text(store.rigidCalibrating ? "\(store.rigidFaceCount)/5" : (store.rigidReady ? "READY" : "NOT CALIBRATED")).foregroundStyle(store.rigidReady ? .green : brightCoral)
-                        Button(store.rigidCalibrating ? "Finish" : (store.rigidReady ? "Recalibrate" : "Calibrate")) { if store.rigidCalibrating { store.finishRigidCalibration() } else { store.startRigidCalibration() } }.disabled(store.recording)
+                        HStack(spacing: 8) {
+                            Button { showRigidSettings = true; showCameraSettings = true } label: { Label("Cube", systemImage: "cube.transparent") }.disabled(store.recording)
+                            Text(store.rigidCalibrating ? "\(store.rigidFaceCount)/5" : (store.rigidReady ? "READY" : "NOT CALIBRATED")).foregroundStyle(store.rigidReady ? .green : brightCoral)
+                            Button(store.rigidCalibrating ? "Finish" : (store.rigidReady ? "Recalibrate" : "Calibrate")) { if store.rigidCalibrating { store.finishRigidCalibration() } else { store.startRigidCalibration() } }.disabled(store.recording)
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(8).background(glassRounded(12))
                     }
                     Spacer(minLength: 0)
-                    if store.hasOrigin { Button("Reset Origin") { coordinator?.resetPlacement() }.disabled(store.recording) }
-                    else { Label(store.canPlaceOrigin ? "Tap to Set Origin" : "Scan Surface", systemImage: "scope") }
-                }.font(.system(size: 11, weight: .semibold)).padding(8).background(glassRounded(12))
+                    Group {
+                        if store.hasOrigin { Button("Reset Origin") { coordinator?.resetPlacement() }.disabled(store.recording) }
+                        else { Label(store.canPlaceOrigin ? "Tap to Set Origin" : "Scan Surface", systemImage: "scope") }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(8).background(glassRounded(12))
+                }.font(.system(size: 11, weight: .semibold))
                 HStack(spacing: 8) {
                     Button { store.cycleTrackingMode() } label: { Label(store.trackingMode.title, systemImage: store.trackingMode.symbol).padding(8).background(glassCapsule(active: true)) }.disabled(store.recording)
                     Button { store.cycleResolution() } label: { Text(store.resolution == 2160 ? "4K" : "1080p").padding(8).background(glassCapsule()) }.disabled(store.recording || !store.supports4K)
