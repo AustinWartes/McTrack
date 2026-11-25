@@ -121,7 +121,9 @@ private final class PlaybackData: ObservableObject {
         }
         func line(_ m: simd_float4x4,_ a: SIMD3<Float>,_ b: SIMD3<Float>,_ color: Color) {
             var aa = a, bb = b
-            let pa = inv*m*SIMD4(a.x,a.y,a.z,1), pb = inv*m*SIMD4(b.x,b.y,b.z,1)
+            let localToCamera: simd_float4x4 = simd_mul(inv, m)
+            let pa: SIMD4<Float> = simd_mul(localToCamera, SIMD4<Float>(a.x, a.y, a.z, 1))
+            let pb: SIMD4<Float> = simd_mul(localToCamera, SIMD4<Float>(b.x, b.y, b.z, 1))
             let near: Float = -0.02
             if pa.z >= near && pb.z >= near { return }
             if pa.z >= near { aa = a + (b-a)*((near-pa.z)/(pb.z-pa.z)) }
