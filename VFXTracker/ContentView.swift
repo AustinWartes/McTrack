@@ -4,7 +4,9 @@ import ARKit
 import AVFoundation
 
 struct ContentView: View {
-    @StateObject private var store = TrackingStore()
+    @ObservedObject var store: TrackingStore
+    var onHome: () -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var coordinator: ARCameraView.Coordinator?
     @State private var showCameraSettings = false
     @State private var showRigidSettings = false
@@ -98,6 +100,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
+                    Button(action: onHome) { Image(systemName: "chevron.left").padding(8) }.disabled(store.recording || store.saving)
                     framedWordmark
                     Spacer()
                     Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED")
@@ -117,6 +120,7 @@ struct ContentView: View {
                 .padding(.horizontal, 18).padding(.top, 10)
 
                 if showCameraSettings {
+                    ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             HStack { Image(systemName: showRigidSettings ? "cube" : "camera").foregroundStyle(coral).shadow(color: .red, radius: 5); Text(showRigidSettings ? "Rigid Body" : "Camera") }
@@ -158,6 +162,8 @@ struct ContentView: View {
                     .disabled(store.recording).padding(14)
                     .background(glassRounded()).padding(.horizontal, 16).padding(.top, 8)
                     
+                    }
+                    .frame(maxHeight: verticalSizeClass == .compact ? 125 : 320)
                     .onChange(of: editingDimensions) { _, active in if !active { store.updateRigidDimensions() } }
 
                 }
@@ -255,7 +261,7 @@ struct ContentView: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        if store.recording { store.end() } else { store.begin() }
+                        if store.recording { store.end(); CaptureOrientation.unlock() } else { let angle = CaptureOrientation.lock(); store.begin(rotation: angle) }
                     } label: {
                         Label(store.recording ? "STOP" : "RECORD", systemImage: store.recording ? "stop.fill" : "record.circle")
                             .font(.system(size: 15, weight: .bold))
@@ -264,6 +270,7 @@ struct ContentView: View {
                             .shadow(color: coral.opacity(0.45), radius: 11)
                             .foregroundStyle(store.recording ? .white : .black)
                     }
+                    .disabled(store.saving)
                     Button { store.refreshTakes(); store.showTakes = true } label: {
                         Image(systemName: "folder")
                             .font(.system(size: 19, weight: .medium))
@@ -271,6 +278,7 @@ struct ContentView: View {
                             .background(glassRounded(14))
                     }
                     .foregroundStyle(.white)
+                    .disabled(store.recording || store.saving)
                 }
                 .padding(.horizontal, 16)
                 Text(store.message)
@@ -288,36 +296,10 @@ struct ContentView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false; CaptureOrientation.unlock(); store.resetOrigin() }
+        .onChange(of: store.recording) { _, active in if !active { CaptureOrientation.unlock() } }
         .sheet(isPresented: $store.showTakes) {
-            NavigationStack {
-                List {
-                    ForEach(store.takes, id: \.path) { folder in
-                        ShareLink(item: folder, preview: SharePreview(folder.lastPathComponent)) {
-                            Label(folder.lastPathComponent, systemImage: "folder")
-                        }
-                    }
-                }
-                .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 8) {
-                        Text("Saved locally: Files → On My iPhone → McTrack → Takes")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                        Button("Open Files") {
-                            if let url = URL(string: "shareddocuments://") {
-                                UIApplication.shared.open(url)
-                            }
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                }
-                .navigationTitle("Saved Takes")
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { store.showTakes = false } } }
-                .overlay {
-                    if store.takes.isEmpty { ContentUnavailableView("No takes yet", systemImage: "folder", description: Text("Record a take to save it here.")) }
-                }
-            }
+            RecordingLibrary(store: store, close: { store.showTakes = false })
         }
     }
 }

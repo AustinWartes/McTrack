@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import CoreImage
 import CoreVideo
+import ImageIO
 
 // AVAssetWriter receives ARKit camera buffers and microphone CMSampleBuffers.
 // Both clocks are host-time based. Audio samples are retimed to the first ARFrame.
@@ -22,23 +23,31 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var finishing = false
     let resolution: Int
     let fps: Int
+    let rotation: Int
+    let width: Int
+    let height: Int
     private(set) var audioStatus = "not initialized"
 
-    init(url: URL, resolution: Int = 1080, fps: Int = 30) throws {
+    init(url: URL, resolution: Int = 1080, fps: Int = 30, rotation: Int = 90) throws {
         self.resolution = resolution
         self.fps = fps
-        let height = resolution == 2160 ? 3840 : 1920
+        self.rotation = rotation
+        let long = resolution == 2160 ? 3840 : 1920
+        let width = rotation % 180 == 0 ? long : resolution
+        let height = rotation % 180 == 0 ? resolution : long
+        self.width = width
+        self.height = height
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: resolution,
+            AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: resolution == 2160 ? 35_000_000 : 10_000_000]
         ])
         videoInput.expectsMediaDataInRealTime = true
         adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: resolution,
+            kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height,
             kCVPixelBufferIOSurfacePropertiesKey as String: [:]
         ])
@@ -90,13 +99,13 @@ final class TakeWriter: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
               let output = destination else { return }
         let source = CIImage(cvPixelBuffer: buffer)
         // ARKit's captured image is landscape sensor data. Rotate actual pixels into portrait.
-        let rotated = source.oriented(.right)
+        let rotated = source.oriented(rotation == 90 ? .right : rotation == 180 ? .down : rotation == 270 ? .left : .up)
         let extent = rotated.extent
-        let scale = max(CGFloat(resolution) / extent.width, CGFloat(resolution == 2160 ? 3840 : 1920) / extent.height)
+        let scale = max(CGFloat(width) / extent.width, CGFloat(height) / extent.height)
         let scaled = rotated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let x = (scaled.extent.width - CGFloat(resolution)) / 2 + scaled.extent.minX
-        let y = (scaled.extent.height - CGFloat(resolution == 2160 ? 3840 : 1920)) / 2 + scaled.extent.minY
-        let cropped = scaled.cropped(to: CGRect(x: x, y: y, width: CGFloat(resolution), height: CGFloat(resolution == 2160 ? 3840 : 1920)))
+        let x = (scaled.extent.width - CGFloat(width)) / 2 + scaled.extent.minX
+        let y = (scaled.extent.height - CGFloat(height)) / 2 + scaled.extent.minY
+        let cropped = scaled.cropped(to: CGRect(x: x, y: y, width: CGFloat(width), height: CGFloat(height)))
             .transformed(by: CGAffineTransform(translationX: -x, y: -y))
         context.render(cropped, to: output)
         if adaptor.append(output, withPresentationTime: CMTime(seconds: arTimestamp, preferredTimescale: 1_000_000)) {

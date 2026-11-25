@@ -114,6 +114,7 @@ final class TrackingStore: ObservableObject {
     }
 
     @Published var recording = false
+    @Published var saving = false
     @Published var resolution = 1080
     @Published var fps = 30
     @Published var supports4K = ARWorldTrackingConfiguration.supportedVideoFormats.contains {
@@ -199,7 +200,10 @@ final class TrackingStore: ObservableObject {
         }
     }
 
-    func begin() {
+    func begin(rotation: Int = 90) {
+        guard !recording, !saving else { return }
+        let resolution = self.resolution, fps = self.fps
+        recording = true
         queue.async {
             guard self.writer == nil else { return }
             let number = UserDefaults.standard.integer(forKey: "McTrackNextTakeNumber") + 1
@@ -209,7 +213,7 @@ final class TrackingStore: ObservableObject {
             let folder = self.takesFolder.appendingPathComponent(String(format: "Recording_%03d_%@", number, Self.dateName()), isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"), resolution: self.resolution, fps: self.fps)
+                let writer = try TakeWriter(url: folder.appendingPathComponent("video.mov"), resolution: resolution, fps: fps, rotation: rotation)
                 self.writer = writer
                 self.activeFolder = folder
                 self.samples.removeAll(keepingCapacity: true)
@@ -219,14 +223,16 @@ final class TrackingStore: ObservableObject {
                 self.lastTimestamp = -1
                 DispatchQueue.main.async { self.recording = true; self.message = "Recording" }
             } catch {
-                DispatchQueue.main.async { self.message = "Record error: \(error.localizedDescription)" }
+                DispatchQueue.main.async { self.recording = false; self.message = "Record error: \(error.localizedDescription)" }
             }
         }
     }
 
     func end() {
+        guard recording, !saving else { return }
+        saving = true
         queue.async {
-            guard let writer = self.writer, let folder = self.activeFolder else { return }
+            guard let writer = self.writer, let folder = self.activeFolder else { DispatchQueue.main.async { self.saving = false; self.recording = false }; return }
             self.writer = nil
             self.activeFolder = nil
             let samples = self.samples
@@ -239,6 +245,7 @@ final class TrackingStore: ObservableObject {
             let calibrationReady = rigidModel.ready
             let recordedMode = self.activeTrackingMode
             let origin = self.origin
+            let originSelected = self.selectedOrigin
             let takeNumber = self.activeTakeNumber
             DispatchQueue.main.async { self.recording = false; self.message = "Saving take…" }
             writer.finish { result in
@@ -255,7 +262,7 @@ final class TrackingStore: ObservableObject {
                         try JSONEncoder.pretty.encode(rigid).write(to: folder.appendingPathComponent("rigid.json"), options: .atomic)
                     }
                     try JSONEncoder.pretty.encode(writer.writtenVideoTimestamps).write(to: folder.appendingPathComponent("video_timestamps.json"), options: .atomic)
-                    let metadata: [String: Any] = ["appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.1", "appBuild": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "111", "exportSchemaVersion": 3, "markerCornerConvention": "AprilTag native order, sensor pixels, top-left origin", "videoTransform": "clockwise 90 degrees, aspect fill, center crop", "videoTimestamps": "video_timestamps.json", "video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": "portrait", "videoPixelSize": [self.resolution, self.resolution == 1080 ? 1920 : 3840], "videoFPS": self.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
+                    let metadata: [String: Any] = ["appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.0", "appBuild": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "120", "exportSchemaVersion": 3, "markerCornerConvention": "AprilTag native order, sensor pixels, top-left origin", "videoTransform": "clockwise \(writer.rotation) degrees, aspect fill, center crop", "videoTimestamps": "video_timestamps.json", "video": "video.mov", "tracking": "tracking.json", "markers": "markers.json", "trackingMode": recordedMode.title, "sampleCount": samples.count, "videoOrientation": writer.rotation % 180 == 0 ? "landscape" : "portrait", "originSelected": originSelected, "videoRotationDegrees": writer.rotation, "videoPixelSize": [writer.width, writer.height], "videoFPS": writer.fps, "audioRequested": true, "audioStatus": writer.audioStatus, "lensSource": "ARKit camera intrinsics (pixel units)", "stabilization": "No explicit AVFoundation stabilization enabled; source ARKit capturedImage", "captureClock": "ARFrame.timestamp", "trackingUnits": "meters"]
                     let meta = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
                     try meta.write(to: folder.appendingPathComponent("metadata.json"), options: .atomic)
                     let finalName = String(format: "Take_%03d_%@", takeNumber, Self.friendlyDateName())
@@ -265,12 +272,13 @@ final class TrackingStore: ObservableObject {
                     }
                     try FileManager.default.moveItem(at: folder, to: finalFolder)
                     DispatchQueue.main.async {
+                        self.saving = false
                         self.latestTake = finalFolder
                         self.message = result == nil ? "Take saved" : "Saved with video warning"
                         self.refreshTakes()
                     }
                 } catch {
-                    DispatchQueue.main.async { self.message = "Save error: \(error.localizedDescription)" }
+                    DispatchQueue.main.async { self.saving = false; self.message = "Save error: \(error.localizedDescription)" }
                 }
             }
         }
