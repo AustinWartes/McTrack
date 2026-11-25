@@ -44,7 +44,7 @@ struct HomeView: View {
                 VStack(spacing: 24) {
                     HStack(spacing: 0) { Text("Mc").foregroundStyle(.white); Text("Track").foregroundStyle(coral).shadow(color: coral.opacity(0.8), radius: 12) }
                         .font(.system(size: 52, weight: .bold, design: .rounded)).italic()
-                    Text("CAMERA  /  RIGID TRACKING").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(3).foregroundStyle(.secondary)
+                    Text("CAMERA  /  OBJECT TRACKING").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(3).foregroundStyle(.secondary)
                     VStack(spacing: 12) {
                         Button { shooting = true } label: { Label("Start Shooting", systemImage: "viewfinder").frame(maxWidth: .infinity).padding(16).background(coral, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(.white).shadow(color: coral.opacity(0.35), radius: 12) }
                         Button { store.refreshTakes(); library = true } label: { Label("Recordings", systemImage: "folder").frame(maxWidth: .infinity).padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.2))).foregroundStyle(.white) }

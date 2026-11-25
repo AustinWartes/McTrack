@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import AVFoundation
 import simd
 
 struct RecordingLibrary: View {
@@ -25,6 +26,7 @@ private struct PlaybackMetadata: Decodable {
     var videoPixelSize: [Int]?
     var videoOrientation: String?
     var originSelected: Bool?
+    var rigidAxisLength: Double?
 }
 private struct PlaybackMarker: Decodable { let id: Int; let arTimestamp: Double; let markerToOrigin: [Float] }
 private struct PlaybackMarkers: Decodable { let observations: [PlaybackMarker]; let tagSizeMeters: Double }
@@ -57,6 +59,7 @@ private final class PlaybackData: ObservableObject {
     let rigid: [TimedPose]
     let edge: Float
     let tagSize: Float
+    let axisLength: Float
     let angle: Int
     let width: CGFloat
     let height: CGFloat
@@ -65,6 +68,9 @@ private final class PlaybackData: ObservableObject {
     @Published var time: Double = 0
     @Published var duration: Double = 0
     @Published var playing = false
+    @Published var hasAudio = false
+    @Published var muted = true
+    func toggleMute() { muted.toggle(); player.isMuted = muted; if !muted { try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback); try? AVAudioSession.sharedInstance().setActive(true) } }
     private var observer: Any?
     init(folder: URL) {
         self.folder = folder
@@ -78,12 +84,18 @@ private final class PlaybackData: ObservableObject {
         rigid = (r?.samples ?? []).compactMap { s in matrix(s.rigidToOrigin).map { TimedPose(time:s.arTimestamp,matrix:$0) } }.sorted { $0.time < $1.time }
         edge = Float(r?.cubeEdgeMeters ?? 0.09); tagSize = Float(m?.tagSizeMeters ?? 0.0889)
         let meta = load("metadata.json",PlaybackMetadata.self)
+        axisLength = Float(meta?.rigidAxisLength ?? 1.0)
         angle = meta?.videoRotationDegrees ?? (meta?.videoOrientation == "landscape" ? 0 : 90)
         let dims = meta?.videoPixelSize ?? [1080,1920]
         width = CGFloat(dims.first ?? 1080); height = CGFloat(dims.last ?? 1920)
         first = load("video_timestamps.json",[Double].self)?.first ?? c.first?.arTimestamp ?? 0
         originSelected = meta?.originSelected ?? true
         player = AVPlayer(url: folder.appendingPathComponent("video.mov"))
+        player.isMuted = true
+        Task { @MainActor [weak self] in
+            guard let self, let asset = self.player.currentItem?.asset else { return }
+            self.hasAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
+        }
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(value:1,timescale:60),queue:.main) { [weak self] t in
             guard let self else { return }; self.time = t.seconds.isFinite ? t.seconds : 0
             let d = self.player.currentItem?.duration.seconds ?? 0; self.duration = d.isFinite ? max(0,d) : 0
@@ -91,7 +103,7 @@ private final class PlaybackData: ObservableObject {
         }
     }
     deinit { if let observer { player.removeTimeObserver(observer) } }
-    func draw(_ ctx: GraphicsContext, _ size: CGSize, origin: Bool, tags: Bool, cube: Bool) {
+    func draw(_ ctx: GraphicsContext, _ size: CGSize, origin: Bool, tags: Bool, cube: Bool, axis: Bool) {
         let t = first + time
         guard !cameras.isEmpty, let cam = pose(cameraPoses,t,gap:0.15) else { return }
         let (i,j) = bracket(cameras,t,{$0.arTimestamp}); let k = abs(cameras[i].arTimestamp-t) < abs(cameras[j].arTimestamp-t) ? cameras[i] : cameras[j]
@@ -108,14 +120,20 @@ private final class PlaybackData: ObservableObject {
             return CGPoint(x:(xy.x*crop-(rw*crop-width)/2)*fit+(size.width-width*fit)/2,y:(xy.y*crop-(rh*crop-height)/2)*fit+(size.height-height*fit)/2)
         }
         func line(_ m: simd_float4x4,_ a: SIMD3<Float>,_ b: SIMD3<Float>,_ color: Color) {
-            guard let x = project(m*SIMD4(a.x,a.y,a.z,1)), let y = project(m*SIMD4(b.x,b.y,b.z,1)) else { return }
+            var aa = a, bb = b
+            let pa = inv*m*SIMD4(a.x,a.y,a.z,1), pb = inv*m*SIMD4(b.x,b.y,b.z,1)
+            let near: Float = -0.02
+            if pa.z >= near && pb.z >= near { return }
+            if pa.z >= near { aa = a + (b-a)*((near-pa.z)/(pb.z-pa.z)) }
+            if pb.z >= near { bb = b + (a-b)*((near-pb.z)/(pa.z-pb.z)) }
+            guard let x = project(m*SIMD4(aa.x,aa.y,aa.z,1)), let y = project(m*SIMD4(bb.x,bb.y,bb.z,1)) else { return }
             var path = Path(); path.move(to:x); path.addLine(to:y); ctx.stroke(path,with:.color(color),style:StrokeStyle(lineWidth:2,lineCap:.round))
         }
         func axes(_ m: simd_float4x4,_ length: Float) { line(m,.zero,SIMD3(length,0,0),.red); line(m,.zero,SIMD3(0,length,0),.green); line(m,.zero,SIMD3(0,0,length),.blue) }
         let coral = Color(red:1,green:0.35,blue:0.43)
         if origin && originSelected { axes(matrix_identity_float4x4,0.28) }
         if tags { for (id, track) in markers { if let m = pose(track,t,gap:0.15) { axes(m,0.065); let h = tagSize/2; let p:[SIMD3<Float>] = [SIMD3(-h,-h,0),SIMD3(h,-h,0),SIMD3(h,h,0),SIMD3(-h,h,0)]; for n in 0..<4 { line(m,p[n],p[(n+1)%4],coral) }; if let pt = project(m.columns.3) { ctx.draw(Text("TAG \(id)").font(.caption2).foregroundColor(.white),at:CGPoint(x:pt.x,y:pt.y-14)) } } } }
-        if cube, let m = pose(rigid,t,gap:0.15) { let h = edge/2; let p:[SIMD3<Float>] = [SIMD3(-h,-h,-h),SIMD3(h,-h,-h),SIMD3(h,h,-h),SIMD3(-h,h,-h),SIMD3(-h,-h,h),SIMD3(h,-h,h),SIMD3(h,h,h),SIMD3(-h,h,h)]; for (a,b) in [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)] { line(m,p[a],p[b],coral) }; axes(m,edge) }
+        if cube, let m = pose(rigid,t,gap:0.15) { let h = edge/2; let p:[SIMD3<Float>] = [SIMD3(-h,-h,-h),SIMD3(h,-h,-h),SIMD3(h,h,-h),SIMD3(-h,h,-h),SIMD3(-h,-h,h),SIMD3(h,-h,h),SIMD3(h,h,h),SIMD3(-h,h,h)]; for (a,b) in [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)] { line(m,p[a],p[b],coral) }; axes(m,edge); if axis { line(m,SIMD3(0,0,-axisLength/2),SIMD3(0,0,axisLength/2),Color(red:0.65,green:0.78,blue:1)) } }
     }
 }
 private struct TakePlayback: View {
@@ -123,16 +141,17 @@ private struct TakePlayback: View {
     @State private var origin = true
     @State private var tags = false
     @State private var cube = true
+    @State private var axis = true
     init(folder: URL) { _data = StateObject(wrappedValue:PlaybackData(folder:folder)) }
     var body: some View {
         VStack(spacing: 8) {
-            ZStack { PlayerSurface(player:data.player); Canvas { ctx,size in data.draw(ctx,size,origin:origin,tags:tags,cube:cube) }.allowsHitTesting(false) }.clipped()
+            ZStack { PlayerSurface(player:data.player); Canvas { ctx,size in data.draw(ctx,size,origin:origin,tags:tags,cube:cube,axis:axis) }.allowsHitTesting(false) }.clipped()
             HStack { Button { if data.playing { data.player.pause() } else { if data.time >= data.duration-0.05 { data.player.seek(to:.zero) }; data.player.play() } } label: { Image(systemName:data.playing ? "pause.fill":"play.fill").frame(width:32) }; Slider(value:Binding(get:{min(data.time,max(data.duration,0.01))},set:{ data.time=$0; data.player.seek(to:CMTime(seconds:$0,preferredTimescale:60000),toleranceBefore:.zero,toleranceAfter:.zero) }),in:0...max(data.duration,0.01)); Text(String(format:"%.1fs",data.time)).font(.caption.monospacedDigit()) }
-            HStack { Toggle("Origin",isOn:$origin); Toggle("Tags",isOn:$tags).disabled(data.markers.isEmpty); Toggle("Cube",isOn:$cube).disabled(data.rigid.isEmpty) }.toggleStyle(.button).font(.caption)
+            HStack { Toggle("Origin",isOn:$origin); Toggle("Tags",isOn:$tags).disabled(data.markers.isEmpty); Toggle("Cube",isOn:$cube).disabled(data.rigid.isEmpty); Toggle("Z Axis",isOn:$axis).disabled(data.rigid.isEmpty || !cube) }.toggleStyle(.button).font(.caption)
             Text("Replay overlays · short gaps interpolated, longer gaps hidden").font(.caption2).foregroundStyle(.secondary)
         }.padding(10).navigationTitle(data.folder.lastPathComponent).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement:.topBarTrailing) { ShareLink(item:data.folder,preview:SharePreview(data.folder.lastPathComponent)) { Image(systemName:"square.and.arrow.up") } } }
-            .onDisappear { data.player.pause() }
+            .toolbar { ToolbarItemGroup(placement:.topBarTrailing) { Button { data.toggleMute() } label: { Image(systemName: data.muted ? "speaker.slash.fill" : "speaker.wave.2.fill") }.disabled(!data.hasAudio).accessibilityLabel(data.hasAudio ? (data.muted ? "Unmute" : "Mute") : "No recorded audio"); ShareLink(item:data.folder,preview:SharePreview(data.folder.lastPathComponent)) { Image(systemName:"square.and.arrow.up") } } }
+            .onDisappear { data.player.pause(); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 }
 private struct PlayerSurface: UIViewRepresentable {

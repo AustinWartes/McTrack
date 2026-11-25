@@ -94,32 +94,7 @@ struct ContentView: View {
         } catch { cameraFeedback = error.localizedDescription }
     }
 
-    var body: some View {
-        ZStack {
-            ARCameraView(store: store, coordinatorRef: $coordinator)
-                .ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Button(action: onHome) { Image(systemName: "chevron.left").padding(8) }.disabled(store.recording || store.saving)
-                    framedWordmark
-                    Spacer()
-                    Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(store.status == "Tracking normal" ? .green : .yellow)
-                    Button { showRigidSettings = false; showCameraSettings.toggle() } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 19))
-                            .frame(width: 42, height: 42)
-                            .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .dark)
-                            .overlay(Circle().fill(glass))
-                            .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
-                            .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
-                    }
-                    .accessibilityLabel("Camera settings")
-                }
-                .padding(.horizontal, 18).padding(.top, 10)
-
-                if showCameraSettings {
+    private var settingsPanel: some View {
                     ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -163,10 +138,80 @@ struct ContentView: View {
                     .background(glassRounded()).padding(.horizontal, 16).padding(.top, 8)
                     
                     }
-                    .frame(maxHeight: verticalSizeClass == .compact ? 125 : 320)
+                    .frame(maxHeight: verticalSizeClass == .compact ? nil : 320)
                     .onChange(of: editingDimensions) { _, active in if !active { store.updateRigidDimensions() } }
 
+    }
+
+    private var landscapeControls: some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 10) {
+                Button(action: onHome) { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.disabled(store.recording || store.saving)
+                framedWordmark
+                Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(store.status == "Tracking normal" ? .green : .yellow)
+                Spacer()
+                Button { showRigidSettings = false; showCameraSettings.toggle() } label: { Image(systemName: "gearshape").frame(width: 44, height: 44).background(glassCapsule(active: showCameraSettings && !showRigidSettings)) }.disabled(store.recording)
+            }
+            if showCameraSettings {
+                HStack {
+                    Spacer(minLength: 0)
+                    settingsPanel.frame(maxWidth: 420)
+                }.frame(maxHeight: .infinity)
+                if editingDimensions { Button("Done") { editingDimensions = false }.padding(8).background(glassCapsule(active: true)) }
+            } else {
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    if store.trackingMode == .rigid {
+                        Button { showRigidSettings = true; showCameraSettings = true } label: { Label("Cube", systemImage: "cube.transparent") }.disabled(store.recording)
+                        Text(store.rigidCalibrating ? "\(store.rigidFaceCount)/5" : (store.rigidReady ? "READY" : "NOT CALIBRATED")).foregroundStyle(store.rigidReady ? .green : brightCoral)
+                        Button(store.rigidCalibrating ? "Finish" : (store.rigidReady ? "Recalibrate" : "Calibrate")) { if store.rigidCalibrating { store.finishRigidCalibration() } else { store.startRigidCalibration() } }.disabled(store.recording)
+                    }
+                    Spacer(minLength: 0)
+                    if store.hasOrigin { Button("Reset Origin") { coordinator?.resetPlacement() }.disabled(store.recording) }
+                    else { Label(store.canPlaceOrigin ? "Tap to Set Origin" : "Scan Surface", systemImage: "scope") }
+                }.font(.system(size: 11, weight: .semibold)).padding(8).background(glassRounded(12))
+                HStack(spacing: 8) {
+                    Button { store.cycleTrackingMode() } label: { Label(store.trackingMode.title, systemImage: store.trackingMode.symbol).padding(8).background(glassCapsule(active: true)) }.disabled(store.recording)
+                    Button { store.cycleResolution() } label: { Text(store.resolution == 2160 ? "4K" : "1080p").padding(8).background(glassCapsule()) }.disabled(store.recording || !store.supports4K)
+                    Button { store.cycleFPS() } label: { Text("\(store.fps) FPS").padding(8).background(glassCapsule()) }.disabled(store.recording)
+                    Spacer(minLength: 0)
+                    Text(store.message).font(.system(size: 10)).lineLimit(2)
+                    Button { store.refreshTakes(); store.showTakes = true } label: { Image(systemName: "folder").frame(width: 44, height: 44).background(glassRounded(12)) }.disabled(store.recording || store.saving)
+                    Button { if store.recording { store.end(); CaptureOrientation.unlock() } else { store.begin(rotation: CaptureOrientation.lock()) } } label: { Label(store.recording ? "STOP" : "RECORD", systemImage: store.recording ? "stop.fill" : "record.circle").font(.system(size: 13, weight: .bold)).padding(.horizontal, 14).frame(height: 44).background(store.recording ? coral : .white, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(store.recording ? .white : .black) }.disabled(store.saving)
+                }.font(.system(size: 12, weight: .semibold))
+            }
+        }.padding(.horizontal, 12).padding(.vertical, 4)
+    }
+
+    var body: some View {
+        ZStack {
+            ARCameraView(store: store, coordinatorRef: $coordinator)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                if verticalSizeClass == .compact {
+                    landscapeControls
+                } else {
+                HStack(spacing: 8) {
+                    Button(action: onHome) { Image(systemName: "chevron.left").padding(8) }.disabled(store.recording || store.saving)
+                    framedWordmark
+                    Spacer()
+                    Text(store.status == "Tracking normal" ? "● TRACKING" : "● LIMITED")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(store.status == "Tracking normal" ? .green : .yellow)
+                    Button { showRigidSettings = false; showCameraSettings.toggle() } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 19))
+                            .frame(width: 42, height: 42)
+                            .background(.ultraThinMaterial, in: Circle()).environment(\.colorScheme, .dark)
+                            .overlay(Circle().fill(glass))
+                            .overlay(Circle().stroke(showCameraSettings ? coral : .white.opacity(0.35), lineWidth: 1))
+                            .shadow(color: showCameraSettings ? coral.opacity(0.72) : coral.opacity(0.14), radius: showCameraSettings ? 7 : 3)
+                    }
+                    .accessibilityLabel("Camera settings")
                 }
+                .padding(.horizontal, 18).padding(.top, 10)
+
+                if showCameraSettings { settingsPanel }
 
                 Spacer()
                 if editingDimensions { HStack { Spacer(); Button { editingDimensions = false } label: { Label("Done", systemImage: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(brightCoral).shadow(color: .red, radius: 4).padding(.horizontal, 15).padding(.vertical, 9).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12)).environment(\.colorScheme, .dark).overlay(RoundedRectangle(cornerRadius: 12).fill(coral.opacity(0.10))).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(coral, lineWidth: 1).shadow(color: .red, radius: 5)) } }.padding(.horizontal, 18) }
@@ -285,12 +330,13 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.8))
                     .padding(.top, 7).padding(.bottom, 12)
+                }
             }
             .foregroundStyle(.white)
         }
         .overlay(alignment: .top) {
             LinearGradient(colors: [.black.opacity(0.53), .black.opacity(0.20), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 110).ignoresSafeArea(edges: .top).allowsHitTesting(false)
+                .frame(height: verticalSizeClass == .compact ? 55 : 110).frame(maxWidth: .infinity).ignoresSafeArea(edges: [.top, .leading, .trailing]).allowsHitTesting(false)
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
